@@ -1291,7 +1291,7 @@ export default function App() {
         {/* Realtime Environment Metrics & Auth Controls */}
         <div className="flex items-center gap-3 text-xs font-mono">
           <div className="hidden lg:flex flex-col text-right">
-            <span className="text-[#64748b] text-[10px] uppercase tracking-wider">模擬帳戶淨資產</span>
+            <span className="text-[#64748b] text-[10px] uppercase tracking-wider">帳戶USDT</span>
             <span className="text-emerald-400 font-bold">${activeMemberConfig.defaultRiskCapital.toLocaleString()} {activeMemberConfig.baseCurrency}</span>
           </div>
 
@@ -2370,7 +2370,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-[#94a3b8] mb-1.5">初始模擬資金額度 (R 本金母數)</label>
+                    <label className="block text-xs text-[#94a3b8] mb-1.5">資金額度 (R 本金母數)</label>
                     <div className="relative font-mono">
                       <input 
                         type="number" 
