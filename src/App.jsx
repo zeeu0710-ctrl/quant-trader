@@ -162,7 +162,7 @@ export default function App() {
       timeframe: '1小時',
       direction: '空',
       strategy: 'SMC 訂單塊回測+流動性清算',
-      tpReached: '是',
+      tpReached: '全部止盈', // Updated format
       slHit: '否',
       hedged: '否',
       riskCoeff: '1.0',
@@ -170,6 +170,7 @@ export default function App() {
       expectedR: 4.80,
       actualR: 4.80,
       plannedPnL: 480.00,
+      plannedLoss: -100.00,
       actualPnL: 480.00,
       winLoss: '✅ 勝',
       reason: '4H 訂單塊重合 Fibo 0.618，1H 清算掃蕩後果斷切入，第一止盈位精準平倉80%，保本放飛剩餘20%。',
@@ -185,7 +186,7 @@ export default function App() {
       timeframe: '15分鐘',
       direction: '多',
       strategy: 'EMA 均線過度偏離修正',
-      tpReached: '否',
+      tpReached: '觸發止損', // Updated format
       slHit: '是',
       hedged: '否',
       riskCoeff: '1.0',
@@ -193,6 +194,7 @@ export default function App() {
       expectedR: 3.20,
       actualR: -1.05,
       plannedPnL: 320.00,
+      plannedLoss: -105.00,
       actualPnL: -105.00,
       winLoss: '❌ 敗',
       reason: '15M 出現假突破，急於切入未等 K 線收盤確認。觸發止損並扣除雙邊 Taker 手續費摩擦。',
@@ -714,7 +716,7 @@ export default function App() {
       return inspectedMemberConfig;
     }
     return memberConfig;
-  }, [isInspecting, inspectedMemberConfig, memberConfig]);
+  });
 
   // ============================================================================
   // PROFESSIONAL MISTAKE LOGGER DEFINITIONS (Trading Mindset & Psychology)
@@ -916,14 +918,15 @@ export default function App() {
       timeframe: planner.timeframe,
       direction: planner.direction,
       strategy: planner.strategy,
-      tpReached: '否', 
-      slHit: '否',
+      tpReached: '未平倉', // Default to open status
+      slHit: '否', 
       hedged: planner.hedged || '否', 
       riskCoeff: planner.riskCoeff.toString(),
       confidence: planner.confidence,
       expectedR: plannerCalculations.expectedR,
       actualR: 0, 
       plannedPnL: parseFloat(plannerCalculations.netPlannedPnL.toFixed(2)),
+      plannedLoss: parseFloat(plannerCalculations.netPnlSL.toFixed(2)), // Save for quick SL updates
       actualPnL: 0, 
       winLoss: '➖ 平', 
       reason: planner.reason || `計畫開倉價: ${planner.entryPrice} | SL: ${planner.stopLossPrice}`,
@@ -951,22 +954,41 @@ export default function App() {
     const updated = records.map(rec => {
       if (rec.id === id) {
         const updatedRec = { ...rec, [field]: value };
+        
+        // Custom Logic 1: Auto-update Win/Loss and Status if user manually touches Actual PnL
         if (field === 'actualPnL') {
           const val = parseFloat(value) || 0;
           if (val > 0) {
             updatedRec.winLoss = '✅ 勝';
-            updatedRec.tpReached = '是';
-            updatedRec.slHit = '否';
+            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
           } else if (val < 0) {
             updatedRec.winLoss = '❌ 敗';
-            updatedRec.tpReached = '否';
-            updatedRec.slHit = '是';
+            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '觸發止損';
           } else {
             updatedRec.winLoss = '➖ 平';
-            updatedRec.tpReached = '否';
-            updatedRec.slHit = '否';
+            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
           }
         }
+
+        // Custom Logic 2: AUTO-FILL Data when User changes TP/SL Status !!!
+        if (field === 'tpReached') {
+          if (value === '全部止盈') {
+            updatedRec.actualPnL = rec.plannedPnL || 0;
+            updatedRec.actualR = rec.expectedR || 0;
+            updatedRec.winLoss = '✅ 勝';
+          } else if (value === '觸發止損') {
+            // Retrieve exact planned loss, or fallback to math approximation
+            const exactLoss = rec.plannedLoss !== undefined ? rec.plannedLoss : -(rec.plannedPnL / (rec.expectedR || 1)).toFixed(2);
+            updatedRec.actualPnL = parseFloat(exactLoss);
+            updatedRec.actualR = -1;
+            updatedRec.winLoss = '❌ 敗';
+          } else if (value === '保本平倉' || value === '未平倉') {
+            updatedRec.actualPnL = 0;
+            updatedRec.actualR = 0;
+            updatedRec.winLoss = '➖ 平';
+          }
+        }
+
         return updatedRec;
       }
       return rec;
@@ -997,7 +1019,7 @@ export default function App() {
   // CSV FILE IMPORT / EXPORT ENGINE
   // ============================================================================
   const handleExportCSV = () => {
-    const headers = ['日期', '時間', '幣種', '級別', '方向', '策略', '達到止盈', '觸發止損', '套保', '風險係數', '信心', '預計R', '實際R', '計畫盈虧金額', '實際盈虧金額', '勝負', '開倉原因', 'K線圖數據', '績效圖數據', '交易心理學歸因'];
+    const headers = ['日期', '時間', '幣種', '級別', '方向', '策略', '結算狀態', '觸發止損(棄用)', '套保', '風險係數', '信心', '預計R', '實際R', '計畫盈虧金額', '實際盈虧金額', '勝負', '開倉原因', 'K線圖數據', '績效圖數據', '交易心理學歸因'];
     
     const rows = records.map(rec => [
       rec.date,
@@ -1007,7 +1029,7 @@ export default function App() {
       rec.direction,
       rec.strategy,
       rec.tpReached,
-      rec.slHit,
+      rec.slHit || '否',
       rec.hedged || '否',
       rec.riskCoeff,
       rec.confidence,
@@ -1087,7 +1109,7 @@ export default function App() {
             timeframe: columns[3] || '1小時',
             direction: columns[4] || '多',
             strategy: columns[5] || '一般開倉',
-            tpReached: columns[6] || '否',
+            tpReached: columns[6] || '未平倉',
             slHit: columns[7] || '否',
             hedged: columns[8] || '否', 
             riskCoeff: columns[9] || '1.0',
@@ -2033,7 +2055,7 @@ export default function App() {
                     {isInspecting ? `💎 正在查閱：${activeMemberConfig.nickname} 的歷史覆盤日誌` : '實戰交易覆盤日誌'}
                   </h2>
                   <p className="text-xs text-[#64748b]">
-                    {isInspecting ? '🔒 當前為管理端穿透唯讀模式' : '套保自動從勝率歸因指標中隔離。'}
+                    {isInspecting ? '🔒 當前為管理端穿透唯讀模式' : '狀態切換為止盈或止損時，系統將自動為您帶入預計盈虧數據。'}
                   </p>
                 </div>
               </div>
@@ -2073,7 +2095,7 @@ export default function App() {
                     <th className="py-3 px-2">分析級別</th>
                     <th className="py-3 px-2">方向</th>
                     <th className="py-3 px-3">使用策略</th>
-                    <th className="py-3 px-2 text-center">TP/SL 觸發</th>
+                    <th className="py-3 px-2 text-center">結算狀態 (Status)</th>
                     <th className="py-3 px-2 text-center">對沖套保</th>
                     <th className="py-3 px-2 text-center">心理覆盤與偏差</th>
                     <th className="py-3 px-2 text-center">信心</th>
@@ -2114,25 +2136,38 @@ export default function App() {
                         <td className="py-4 px-3 text-slate-300 font-medium">
                           {rec.strategy}
                         </td>
-                        <td className="py-4 px-2">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                              rec.tpReached === '開' || rec.tpReached === '是' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-900 text-slate-500'
-                            }`}>
-                              TP: {rec.tpReached}
-                            </span>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                              rec.slHit === '是' ? 'bg-rose-500/20 text-rose-300' : 'bg-slate-900 text-slate-500'
-                            }`}>
-                              SL: {rec.slHit}
-                            </span>
-                          </div>
+                        
+                        {/* 🌟 NEW SMART CLOSE STATUS SELECTOR */}
+                        <td className="py-4 px-2 text-center">
+                          <select 
+                            value={
+                              rec.tpReached === '是' ? '全部止盈' :
+                              (rec.tpReached === '否' && rec.slHit === '是' ? '觸發止損' :
+                              (rec.tpReached === '否' ? '未平倉' : rec.tpReached))
+                            }
+                            onChange={(e) => updateRecordField(rec.id, 'tpReached', e.target.value)}
+                            className={`text-[10px] font-bold rounded px-1.5 py-1 text-center bg-[#0a0c10] border focus:outline-none transition-colors cursor-pointer ${
+                              ['全部止盈', '是'].includes(rec.tpReached) ? 'border-emerald-500/30 text-emerald-400' :
+                              ['觸發止損'].includes(rec.tpReached) || (rec.tpReached==='否' && rec.slHit==='是') ? 'border-rose-500/30 text-rose-400' :
+                              ['保本平倉'].includes(rec.tpReached) ? 'border-slate-500/30 text-slate-300' :
+                              ['未平倉', '否'].includes(rec.tpReached) ? 'border-amber-500/30 text-amber-400' :
+                              'border-blue-500/30 text-blue-400'
+                            }`}
+                            disabled={isInspecting}
+                          >
+                            <option value="未平倉">⏳ 未平倉</option>
+                            <option value="全部止盈">✅ 全部止盈</option>
+                            <option value="觸發止損">❌ 觸發止損</option>
+                            <option value="保本平倉">➖ 保本平倉</option>
+                            <option value="手動/部分">🤏 手動/部分</option>
+                          </select>
                         </td>
+
                         <td className="py-4 px-2 text-center">
                           <select 
                             value={rec.hedged || '否'}
                             onChange={(e) => updateRecordField(rec.id, 'hedged', e.target.value)}
-                            className={`text-[10px] font-bold rounded px-2 py-0.5 text-center bg-[#0a0c10] border ${
+                            className={`text-[10px] font-bold rounded px-2 py-0.5 text-center bg-[#0a0c10] border focus:outline-none ${
                               rec.hedged === '是' 
                                 ? 'border-amber-500/30 text-amber-400 bg-amber-500/5' 
                                 : 'border-slate-800 text-slate-400'
@@ -2172,7 +2207,7 @@ export default function App() {
                               step="0.05"
                               value={rec.actualR}
                               onChange={(e) => updateRecordField(rec.id, 'actualR', parseFloat(e.target.value) || 0)}
-                              className="w-14 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono"
+                              className="w-14 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
                               disabled={isInspecting}
                             />
                           </div>
@@ -2186,7 +2221,7 @@ export default function App() {
                               type="number" 
                               value={rec.actualPnL}
                               onChange={(e) => updateRecordField(rec.id, 'actualPnL', parseFloat(e.target.value) || 0)}
-                              className="w-18 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono"
+                              className="w-18 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
                               disabled={isInspecting}
                             />
                           </div>
@@ -2195,7 +2230,7 @@ export default function App() {
                           <select 
                             value={rec.winLoss}
                             onChange={(e) => updateRecordField(rec.id, 'winLoss', e.target.value)}
-                            className={`text-[10px] font-bold rounded px-1.5 py-0.5 text-center bg-[#0a0c10] border ${
+                            className={`text-[10px] font-bold rounded px-1.5 py-0.5 text-center bg-[#0a0c10] border focus:outline-none ${
                               rec.winLoss.includes('勝') ? 'border-emerald-500/30 text-emerald-400' :
                               rec.winLoss.includes('敗') ? 'border-rose-500/30 text-rose-400' :
                               'border-slate-700 text-slate-400'
@@ -2211,7 +2246,7 @@ export default function App() {
                           <textarea 
                             value={rec.reason}
                             onChange={(e) => updateRecordField(rec.id, 'reason', e.target.value)}
-                            className="w-full bg-transparent focus:bg-[#0a0c10] border border-transparent focus:border-[#1b212f] hover:border-[#1b212f] rounded p-1 text-[11px] text-[#94a3b8] focus:text-[#f8fafc] resize-y leading-relaxed"
+                            className="w-full bg-transparent focus:bg-[#0a0c10] border border-transparent focus:border-[#1b212f] hover:border-[#1b212f] rounded p-1 text-[11px] text-[#94a3b8] focus:text-[#f8fafc] resize-y leading-relaxed outline-none"
                             rows="2"
                             disabled={isInspecting}
                           />
