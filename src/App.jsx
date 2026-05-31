@@ -160,6 +160,7 @@ export default function App() {
       direction: '空',
       strategy: 'SMC 訂單塊回測+流動性清算',
       tpReached: '全部止盈', 
+      remainingPosition: '0',
       slHit: '否',
       hedged: '否',
       riskCoeff: '1.0',
@@ -184,6 +185,7 @@ export default function App() {
       direction: '多',
       strategy: 'EMA 均線過度偏離修正',
       tpReached: '觸發止損', 
+      remainingPosition: '0',
       slHit: '是',
       hedged: '否',
       riskCoeff: '1.0',
@@ -201,7 +203,7 @@ export default function App() {
     }
   ]);
 
-  // Trade Planner State - Use empty strings '' instead of 0 to fix the blocking issue
+  // Trade Planner State
   const [planner, setPlanner] = useState({
     coin: 'BTC',
     timeframe: '1小時',
@@ -222,10 +224,10 @@ export default function App() {
     date: getLocalDateString(), 
     time: getLocalTimeString(), 
     tps: [
-      { id: 1, price: '70000', percent: '50', active: true },
-      { id: 2, price: '72000', percent: '30', active: true },
-      { id: 3, price: '75000', percent: '20', active: true },
-      { id: 4, price: '', percent: '', active: false }
+      { id: 1, price: '70000', percent: '50', amount: '5000', active: true },
+      { id: 2, price: '72000', percent: '30', amount: '3000', active: true },
+      { id: 3, price: '75000', percent: '20', amount: '2000', active: true },
+      { id: 4, price: '', percent: '', amount: '', active: false }
     ]
   });
 
@@ -530,11 +532,8 @@ export default function App() {
     }
   };
 
-  // ============================================================================
-  // G. Owner Action: Batch Delete Users Data
-  // ============================================================================
   const handleToggleSelectUser = (uid) => {
-    if (uid === user?.uid) return; // 防呆：不能刪除自己
+    if (uid === user?.uid) return; 
     setSelectedUsers(prev => 
       prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
     );
@@ -557,9 +556,7 @@ export default function App() {
     setIsSyncing(true);
     try {
       for (const uid of selectedUsers) {
-        // 從公開的 Directory 目錄中抹除
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_directory', uid));
-        // 清空該使用者的私有參數 (相當於帳號重置)
         await deleteDoc(doc(db, 'artifacts', appId, 'users', uid, 'trading_config', 'main'));
       }
       showToast(`成功抹除 ${selectedUsers.length} 位學員的資料與權限！`, "success");
@@ -902,14 +899,40 @@ export default function App() {
   // PLANNER EVENT HANDLERS
   // ============================================================================
   const handlePlannerChange = (field, value) => {
-    setPlanner(prev => ({ ...prev, [field]: value }));
+    setPlanner(prev => {
+      const next = { ...prev, [field]: value };
+      
+      // Auto-recalculate TP amounts if orderValue changes
+      if (field === 'orderValue') {
+        const ov = parseFloat(value) || 0;
+        next.tps = next.tps.map(tp => ({
+          ...tp,
+          amount: tp.percent !== '' ? ((parseFloat(tp.percent) / 100) * ov).toFixed(2) : ''
+        }));
+      }
+
+      return next;
+    });
   };
 
   const handleTpChange = (id, field, value) => {
     setPlanner(prev => {
       const newTps = prev.tps.map(tp => {
         if (tp.id === id) {
-          return { ...tp, [field]: value };
+          let updatedTp = { ...tp, [field]: value };
+          
+          // Mutual Calculation: Percent <-> Amount
+          if (field === 'percent') {
+            const pct = parseFloat(value);
+            const ov = parseFloat(prev.orderValue) || 0;
+            updatedTp.amount = isNaN(pct) ? '' : ((pct / 100) * ov).toFixed(2);
+          } else if (field === 'amount') {
+            const amt = parseFloat(value);
+            const ov = parseFloat(prev.orderValue) || 0;
+            updatedTp.percent = (isNaN(amt) || ov <= 0) ? '' : ((amt / ov) * 100).toFixed(2);
+          }
+
+          return updatedTp;
         }
         return tp;
       });
@@ -922,7 +945,10 @@ export default function App() {
       const newTps = prev.tps.map(tp => {
         if (tp.id === id) {
           const nextActive = !tp.active;
-          return { ...tp, active: nextActive, percent: nextActive ? '25' : '' };
+          const defaultPct = nextActive ? '25' : '';
+          const ov = parseFloat(prev.orderValue) || 0;
+          const defaultAmt = nextActive ? ((25 / 100) * ov).toFixed(2) : '';
+          return { ...tp, active: nextActive, percent: defaultPct, amount: defaultAmt };
         }
         return tp;
       });
@@ -969,6 +995,7 @@ export default function App() {
       direction: planner.direction,
       strategy: planner.strategy,
       tpReached: '未平倉', 
+      remainingPosition: '100', // Initialize 100% open position
       slHit: '否', 
       hedged: planner.hedged || '否', 
       riskCoeff: planner.riskCoeff,
@@ -1005,10 +1032,11 @@ export default function App() {
       if (rec.id === id) {
         const updatedRec = { ...rec, [field]: value };
         
-        // Auto-update Win/Loss if user manually types Actual PnL
+        // Auto Mutual Calculation: Actual PnL <-> Actual R
         if (field === 'actualPnL') {
           const val = parseFloat(value);
           if (!isNaN(val)) {
+            // Adjust winLoss tag
             if (val > 0) {
               updatedRec.winLoss = '✅ 勝';
               if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
@@ -1019,24 +1047,67 @@ export default function App() {
               updatedRec.winLoss = '➖ 平';
               if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
             }
+
+            // Calc Actual R
+            if (rec.plannedLoss) {
+              const oneR = Math.abs(rec.plannedLoss);
+              if (oneR > 0) updatedRec.actualR = (val / oneR).toFixed(2);
+            }
+          } else {
+            updatedRec.actualR = '';
+          }
+        } 
+        else if (field === 'actualR') {
+          const val = parseFloat(value);
+          if (!isNaN(val)) {
+             // Calc Actual PnL
+             if (rec.plannedLoss) {
+               const oneR = Math.abs(rec.plannedLoss);
+               if (oneR > 0) {
+                 const pnl = val * oneR;
+                 updatedRec.actualPnL = pnl.toFixed(2);
+
+                 // Adjust winLoss tag
+                 if (val > 0) {
+                   updatedRec.winLoss = '✅ 勝';
+                   if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
+                 } else if (val < 0) {
+                   updatedRec.winLoss = '❌ 敗';
+                   if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '觸發止損';
+                 } else {
+                   updatedRec.winLoss = '➖ 平';
+                   if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
+                 }
+               }
+             }
+          } else {
+            updatedRec.actualPnL = '';
           }
         }
 
-        // Auto-fill Actuals when Status changes
+        // Auto-fill Actuals & Remaining Position when Status changes
         if (field === 'tpReached') {
           if (value === '全部止盈') {
             updatedRec.actualPnL = rec.plannedPnL || '';
             updatedRec.actualR = rec.expectedR || '';
             updatedRec.winLoss = '✅ 勝';
+            updatedRec.remainingPosition = '0';
           } else if (value === '觸發止損') {
             const exactLoss = rec.plannedLoss !== undefined ? rec.plannedLoss : -(rec.plannedPnL / (rec.expectedR || 1)).toFixed(2);
             updatedRec.actualPnL = parseFloat(exactLoss);
             updatedRec.actualR = -1;
             updatedRec.winLoss = '❌ 敗';
-          } else if (value === '保本平倉' || value === '未平倉') {
+            updatedRec.remainingPosition = '0';
+          } else if (value === '保本平倉') {
             updatedRec.actualPnL = '';
             updatedRec.actualR = '';
             updatedRec.winLoss = '➖ 平';
+            updatedRec.remainingPosition = '0';
+          } else if (value === '未平倉') {
+            updatedRec.actualPnL = '';
+            updatedRec.actualR = '';
+            updatedRec.winLoss = '➖ 平';
+            updatedRec.remainingPosition = '100';
           }
         }
 
@@ -1070,7 +1141,7 @@ export default function App() {
   // CSV FILE IMPORT / EXPORT ENGINE
   // ============================================================================
   const handleExportCSV = () => {
-    const headers = ['日期', '時間', '幣種', '級別', '方向', '策略', '結算狀態', '觸發止損(棄用)', '套保', '風險係數', '信心', '預計R', '實際R', '計畫盈虧金額', '實際盈虧金額', '勝負', '開倉原因', 'K線圖數據', '績效圖數據', '交易心理學歸因'];
+    const headers = ['日期', '時間', '幣種', '級別', '方向', '策略', '結算狀態', '觸發止損(棄用)', '套保', '風險係數', '信心', '預計R', '實際R', '計畫盈虧金額', '實際盈虧金額', '勝負', '開倉原因', 'K線圖數據', '績效圖數據', '交易心理學歸因', '剩餘倉位(%)'];
     
     const rows = records.map(rec => [
       rec.date,
@@ -1092,7 +1163,8 @@ export default function App() {
       rec.reason ? rec.reason.replace(/,/g, '，').replace(/\n/g, ' ') : '',
       rec.chartData ? "[BASE64_IMAGE]" : "", 
       rec.perfChartData ? "[BASE64_IMAGE]" : "",
-      rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅'
+      rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅',
+      rec.remainingPosition || '0'
     ]);
 
     let csvContent = "\uFEFF" + headers.join(",") + "\n"; 
@@ -1173,7 +1245,8 @@ export default function App() {
             reason: columns[16] || '',
             chartData: columns[17] === '[BASE64_IMAGE]' ? '' : (columns[17] || ''),
             perfChartData: columns[18] === '[BASE64_IMAGE]' ? '' : (columns[18] || ''),
-            mistakeTag: columns[19] || '無犯錯 (嚴格執行計畫) ✅'
+            mistakeTag: columns[19] || '無犯錯 (嚴格執行計畫) ✅',
+            remainingPosition: columns[20] || (['全部止盈', '觸發止損', '保本平倉'].includes(columns[6]) ? '0' : '100')
           });
         }
 
@@ -1844,7 +1917,7 @@ export default function App() {
                       </div>
 
                       {tp.active && (
-                        <div className="flex gap-2.5 font-mono">
+                        <div className="flex gap-2 font-mono">
                           <div className="flex-1">
                             <label className="block text-[8px] text-[#64748b] mb-1">平倉價格</label>
                             <input 
@@ -1852,18 +1925,29 @@ export default function App() {
                               value={tp.price}
                               onChange={(e) => handleTpChange(tp.id, 'price', e.target.value)}
                               className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1 text-xs text-[#f8fafc] font-bold focus:outline-none focus:border-emerald-500"
-                              placeholder="未設定"
+                              placeholder="點位"
                               disabled={isInspecting}
                             />
                           </div>
-                          <div className="w-20">
-                            <label className="block text-[8px] text-[#64748b] mb-1">減倉比例</label>
+                          <div className="w-16">
+                            <label className="block text-[8px] text-[#64748b] mb-1">比例(%)</label>
                             <input 
                               type="number" 
                               value={tp.percent}
                               onChange={(e) => handleTpChange(tp.id, 'percent', e.target.value)}
-                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1 text-xs text-center text-[#f8fafc] font-bold focus:outline-none focus:border-emerald-500"
+                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-1.5 py-1 text-xs text-center text-[#f8fafc] font-bold focus:outline-none focus:border-emerald-500"
                               placeholder="%"
+                              disabled={isInspecting}
+                            />
+                          </div>
+                          <div className="w-20">
+                            <label className="block text-[8px] text-[#64748b] mb-1">金額(U)</label>
+                            <input 
+                              type="number" 
+                              value={tp.amount}
+                              onChange={(e) => handleTpChange(tp.id, 'amount', e.target.value)}
+                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-1.5 py-1 text-xs text-center text-[#f8fafc] font-bold focus:outline-none focus:border-emerald-500"
+                              placeholder="價值"
                               disabled={isInspecting}
                             />
                           </div>
@@ -2136,7 +2220,7 @@ export default function App() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1300px] text-left border-collapse">
+              <table className="w-full min-w-[1350px] text-left border-collapse">
                 <thead>
                   <tr className="border-b border-[#1b212f] text-[10px] uppercase tracking-wider text-[#64748b] font-bold">
                     <th className="py-3 px-4">開倉時間 / 幣種</th>
@@ -2144,6 +2228,7 @@ export default function App() {
                     <th className="py-3 px-2">方向</th>
                     <th className="py-3 px-3">使用策略</th>
                     <th className="py-3 px-2 text-center">結算狀態 (Status)</th>
+                    <th className="py-3 px-2 text-center">剩餘倉位</th>
                     <th className="py-3 px-2 text-center">對沖套保</th>
                     <th className="py-3 px-2 text-center">心理覆盤與偏差</th>
                     <th className="py-3 px-2 text-center">信心</th>
@@ -2158,7 +2243,7 @@ export default function App() {
                 <tbody className="divide-y divide-[#1b212f]/40 text-xs">
                   {records.length === 0 ? (
                     <tr>
-                      <td colSpan="14" className="py-12 text-center text-[#64748b] font-medium">
+                      <td colSpan="15" className="py-12 text-center text-[#64748b] font-medium">
                         目前沒有覆盤紀錄。請先使用規劃器建立新計畫或匯入歷史 CSV 檔案。
                       </td>
                     </tr>
@@ -2208,6 +2293,19 @@ export default function App() {
                             <option value="保本平倉">➖ 保本平倉</option>
                             <option value="手動/部分">🤏 手動/部分</option>
                           </select>
+                        </td>
+
+                        <td className="py-4 px-2 text-center">
+                          <div className="relative">
+                            <input 
+                              type="number" 
+                              value={rec.remainingPosition || '0'}
+                              onChange={(e) => updateRecordField(rec.id, 'remainingPosition', e.target.value)}
+                              className="w-14 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-1 text-xs text-center font-bold text-[#f8fafc] focus:border-emerald-500 focus:outline-none"
+                              disabled={isInspecting}
+                            />
+                            <span className="absolute right-1 top-1.5 text-[9px] text-[#64748b]">%</span>
+                          </div>
                         </td>
 
                         <td className="py-4 px-2 text-center">
