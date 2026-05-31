@@ -1917,7 +1917,7 @@ export default function App() {
                   className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-[#0d0f12] font-extrabold py-3.5 px-6 rounded-xl text-xs tracking-wider transition-all shadow-lg shadow-emerald-500/10 disabled:opacity-40"
                   disabled={isInspecting}
                 >
-                  {isInspecting ? '🔒 穿透監看：唯讀保護中' : '🚀 建立計畫並提交至覆盤日誌'}
+                  {isInspecting ? '🔒 穿透監看：唯讀保護中' : '🚀 建立計畫並提交至交易紀錄'}
                 </button>
               </div>
 
@@ -2323,14 +2323,13 @@ export default function App() {
               <div className="flex items-center justify-between border-b border-[#1b212f] pb-4">
                 <div>
                   <h3 className="font-bold text-xs uppercase tracking-wider text-[#94a3b8]">
-                    {isInspecting ? `💎 學員 [${activeMemberConfig.nickname}] 的實時權益曲線` : '模擬帳戶資產淨值增長曲線'}
+                    {isInspecting ? `💎 學員 [${activeMemberConfig.nickname}] 的實時權益曲線` : '帳戶資產淨值增長曲線'}
                   </h3>
-                  <p className="text-[10px] text-[#64748b]">資深資訊工程師量化指標 · 資產本金對應 K 線時序走向圖</p>
                 </div>
                 <div className="text-right text-xs font-mono">
                   <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
                   <span className="text-[#94a3b8] font-bold">
-                    終端餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
+                    帳戶餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
                   </span>
                 </div>
               </div>
@@ -2476,7 +2475,7 @@ export default function App() {
                   <span>🧠</span> 交易心理學偏差歸因儀
                 </h3>
                 <p className="text-[9px] text-[#64748b] leading-relaxed">
-                  大腦漏洞統計：分析何種心理偏誤（Friction Leaks）正在暗中蠶食您的本金：
+                  分析何種心理偏誤（Friction Leaks）正在暗中蠶食您的本金：
                 </p>
                 <div className="space-y-3">
                   {Object.entries(stats.mistakeStats).map(([tag, data]) => {
