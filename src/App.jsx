@@ -2300,5 +2300,18 @@ export default function App() {
                               <span className={`text-sm font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {data.pnl >= 0 ? '+' : ''}${data.pnl.toFixed(2)}
                               </span>
-                            </div>
-                          </div>
+</div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
