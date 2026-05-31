@@ -161,6 +161,8 @@ export default function App() {
       strategy: 'SMC 訂單塊回測+流動性清算',
       tpReached: '全部止盈', 
       remainingPosition: '0',
+      remainingAmount: '0',
+      orderValue: '10000',
       slHit: '否',
       hedged: '否',
       riskCoeff: '1.0',
@@ -186,6 +188,8 @@ export default function App() {
       strategy: 'EMA 均線過度偏離修正',
       tpReached: '觸發止損', 
       remainingPosition: '0',
+      remainingAmount: '0',
+      orderValue: '10000',
       slHit: '是',
       hedged: '否',
       riskCoeff: '1.0',
@@ -996,6 +1000,8 @@ export default function App() {
       strategy: planner.strategy,
       tpReached: '未平倉', 
       remainingPosition: '100', // Initialize 100% open position
+      remainingAmount: planner.orderValue.toString(), // Initialize full amount
+      orderValue: planner.orderValue.toString(), // Capture exact order value for future calculations
       slHit: '否', 
       hedged: planner.hedged || '否', 
       riskCoeff: planner.riskCoeff,
@@ -1032,6 +1038,25 @@ export default function App() {
       if (rec.id === id) {
         const updatedRec = { ...rec, [field]: value };
         
+        // 0. Mutual Calculation: Remaining Position % <-> Amount (U)
+        if (field === 'remainingPosition') {
+          const pct = parseFloat(value);
+          const ov = parseFloat(rec.orderValue);
+          if (!isNaN(pct) && !isNaN(ov) && ov > 0) {
+            updatedRec.remainingAmount = ((pct / 100) * ov).toFixed(2);
+          } else if (value === '') {
+            updatedRec.remainingAmount = '';
+          }
+        } else if (field === 'remainingAmount') {
+          const amt = parseFloat(value);
+          const ov = parseFloat(rec.orderValue);
+          if (!isNaN(amt) && !isNaN(ov) && ov > 0) {
+            updatedRec.remainingPosition = ((amt / ov) * 100).toFixed(2);
+          } else if (value === '') {
+            updatedRec.remainingPosition = '';
+          }
+        }
+
         // 1. Get 1R securely (Recovers Math logic even if CSV was imported without plannedLoss)
         let oneR = 100; // safe fallback
         if (rec.plannedLoss && !isNaN(parseFloat(rec.plannedLoss)) && parseFloat(rec.plannedLoss) !== 0) {
@@ -1071,22 +1096,26 @@ export default function App() {
             updatedRec.actualR = rec.expectedR || '';
             updatedRec.winLoss = '✅ 勝';
             updatedRec.remainingPosition = '0';
+            updatedRec.remainingAmount = '0';
           } else if (value === '觸發止損') {
             const exactLoss = rec.plannedLoss !== undefined ? rec.plannedLoss : -(parseFloat(rec.plannedPnL) / (parseFloat(rec.expectedR) || 1)).toFixed(2);
             updatedRec.actualPnL = parseFloat(exactLoss);
             updatedRec.actualR = -1;
             updatedRec.winLoss = '❌ 敗';
             updatedRec.remainingPosition = '0';
+            updatedRec.remainingAmount = '0';
           } else if (value === '保本平倉') {
             updatedRec.actualPnL = '0';
             updatedRec.actualR = '0';
             updatedRec.winLoss = '➖ 平';
             updatedRec.remainingPosition = '0';
+            updatedRec.remainingAmount = '0';
           } else if (value === '未平倉') {
             updatedRec.actualPnL = '';
             updatedRec.actualR = '';
             updatedRec.winLoss = '➖ 平';
             updatedRec.remainingPosition = '100';
+            updatedRec.remainingAmount = rec.orderValue || '';
           }
         }
 
@@ -1120,7 +1149,7 @@ export default function App() {
   // CSV FILE IMPORT / EXPORT ENGINE
   // ============================================================================
   const handleExportCSV = () => {
-    const headers = ['日期', '時間', '幣種', '級別', '方向', '策略', '結算狀態', '觸發止損(棄用)', '套保', '風險係數', '信心', '預計R', '實際R', '計畫盈虧金額', '實際盈虧金額', '勝負', '開倉原因', 'K線圖數據', '績效圖數據', '交易心理學歸因', '剩餘倉位(%)'];
+    const headers = ['日期', '時間', '幣種', '級別', '方向', '策略', '結算狀態', '觸發止損(棄用)', '套保', '風險係數', '信心', '預計R', '實際R', '計畫盈虧金額', '實際盈虧金額', '勝負', '開倉原因', 'K線圖數據', '績效圖數據', '交易心理學歸因', '剩餘倉位(%)', '剩餘倉位(U)', '訂單價值(U)'];
     
     const rows = records.map(rec => [
       rec.date,
@@ -1143,7 +1172,9 @@ export default function App() {
       rec.chartData ? "[BASE64_IMAGE]" : "", 
       rec.perfChartData ? "[BASE64_IMAGE]" : "",
       rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅',
-      rec.remainingPosition || '0'
+      rec.remainingPosition || '0',
+      rec.remainingAmount || '0',
+      rec.orderValue || '0'
     ]);
 
     let csvContent = "\uFEFF" + headers.join(",") + "\n"; 
@@ -1225,7 +1256,9 @@ export default function App() {
             chartData: columns[17] === '[BASE64_IMAGE]' ? '' : (columns[17] || ''),
             perfChartData: columns[18] === '[BASE64_IMAGE]' ? '' : (columns[18] || ''),
             mistakeTag: columns[19] || '無犯錯 (嚴格執行計畫) ✅',
-            remainingPosition: columns[20] || (['全部止盈', '觸發止損', '保本平倉'].includes(columns[6]) ? '0' : '100')
+            remainingPosition: columns[20] || (['全部止盈', '觸發止損', '保本平倉'].includes(columns[6]) ? '0' : '100'),
+            remainingAmount: columns[21] || '',
+            orderValue: columns[22] || '',
           });
         }
 
@@ -2199,7 +2232,7 @@ export default function App() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1350px] text-left border-collapse">
+              <table className="w-full min-w-[1450px] text-left border-collapse">
                 <thead>
                   <tr className="border-b border-[#1b212f] text-[10px] uppercase tracking-wider text-[#64748b] font-bold">
                     <th className="py-3 px-4">開倉時間 / 幣種</th>
@@ -2207,7 +2240,7 @@ export default function App() {
                     <th className="py-3 px-2">方向</th>
                     <th className="py-3 px-3">使用策略</th>
                     <th className="py-3 px-2 text-center">結算狀態 (Status)</th>
-                    <th className="py-3 px-2 text-center">剩餘倉位</th>
+                    <th className="py-3 px-2 text-center">剩餘倉位估算</th>
                     <th className="py-3 px-2 text-center">對沖套保</th>
                     <th className="py-3 px-2 text-center">心理覆盤與偏差</th>
                     <th className="py-3 px-2 text-center">信心</th>
@@ -2275,15 +2308,29 @@ export default function App() {
                         </td>
 
                         <td className="py-4 px-2 text-center">
-                          <div className="relative">
-                            <input 
-                              type="number" 
-                              value={rec.remainingPosition || '0'}
-                              onChange={(e) => updateRecordField(rec.id, 'remainingPosition', e.target.value)}
-                              className="w-14 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-1 text-xs text-center font-bold text-[#f8fafc] focus:border-emerald-500 focus:outline-none"
-                              disabled={isInspecting}
-                            />
-                            <span className="absolute right-1 top-1.5 text-[9px] text-[#64748b]">%</span>
+                          <div className="flex flex-col gap-1.5 items-center">
+                            <div className="relative">
+                              <input 
+                                type="number" 
+                                value={rec.remainingPosition ?? ''}
+                                onChange={(e) => updateRecordField(rec.id, 'remainingPosition', e.target.value)}
+                                className="w-16 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-1 text-xs text-center font-bold text-[#f8fafc] focus:border-emerald-500 focus:outline-none"
+                                placeholder="%"
+                                disabled={isInspecting}
+                              />
+                              <span className="absolute right-1 top-1.5 text-[9px] text-[#64748b]">%</span>
+                            </div>
+                            <div className="relative">
+                              <input 
+                                type="number" 
+                                value={rec.remainingAmount ?? ''}
+                                onChange={(e) => updateRecordField(rec.id, 'remainingAmount', e.target.value)}
+                                className="w-16 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-1 text-xs text-center font-bold text-[#f8fafc] focus:border-emerald-500 focus:outline-none"
+                                placeholder="U"
+                                disabled={isInspecting}
+                              />
+                              <span className="absolute right-1 top-1.5 text-[9px] text-[#64748b]">U</span>
+                            </div>
                           </div>
                         </td>
 
@@ -2331,7 +2378,7 @@ export default function App() {
                               step="0.05"
                               value={rec.actualR}
                               onChange={(e) => updateRecordField(rec.id, 'actualR', e.target.value)}
-                              className="w-14 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
+                              className="w-16 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
                               disabled={isInspecting}
                             />
                           </div>
@@ -2345,7 +2392,7 @@ export default function App() {
                               type="number" 
                               value={rec.actualPnL}
                               onChange={(e) => updateRecordField(rec.id, 'actualPnL', e.target.value)}
-                              className="w-18 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
+                              className="w-20 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
                               disabled={isInspecting}
                             />
                           </div>
