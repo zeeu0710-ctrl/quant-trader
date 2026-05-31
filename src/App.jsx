@@ -108,7 +108,7 @@ export default function App() {
     takerFee: 0.05, // BingX Taker fee %
     coins: ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX', 'LINK', 'BNB', 'ORDI', 'PEPE', 'SUI', 'TAO'],
     timeframes: ['3分鐘', '15分鐘', '1小時', '4小時', '1日'],
-    strategies: ['Fibo+關鍵水平位支撐', '3+1策略', '馬刺策略', '突破盤整區追單', '獵取流動性']
+    strategies: ['Fibo+關鍵水平位支撐', 'SMC 訂單塊回測+流動性清算', 'EMA 均線過度偏離修正', '突破盤整區追單', '套保對沖（Hedged）']
   });
 
   // Temp state to allow edits in admin tab before saving/publishing
@@ -1838,7 +1838,7 @@ export default function App() {
                     disabled={isInspecting}
                   >
                     <option value="否">否 (計入常規覆盤勝率)</option>
-                    <option value="是">是 (套保不計勝率)</option>
+                    <option value="是">是 (對沖套保不計勝率)</option>
                   </select>
                 </div>
 
@@ -2305,14 +2305,14 @@ export default function App() {
               <div className="flex items-center justify-between border-b border-[#1b212f] pb-4">
                 <div>
                   <h3 className="font-bold text-xs uppercase tracking-wider text-[#94a3b8]">
-                    {isInspecting ? `💎 學員 [${activeMemberConfig.nickname}] 的實時權益曲線` : '帳戶資產淨值增長曲線'}
+                    {isInspecting ? `💎 學員 [${activeMemberConfig.nickname}] 的實時權益曲線` : '模擬帳戶資產淨值增長曲線'}
                   </h3>
-                  <p className="text-[10px] text-[#64748b]">資產本金對應 K 線時序走向圖</p>
+                  <p className="text-[10px] text-[#64748b]">資深資訊工程師量化指標 · 資產本金對應 K 線時序走向圖</p>
                 </div>
                 <div className="text-right text-xs font-mono">
                   <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
                   <span className="text-[#94a3b8] font-bold">
-                    帳戶資金餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
+                    終端餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
                   </span>
                 </div>
               </div>
@@ -3128,17 +3128,13 @@ export default function App() {
                 <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.92h6.61c-.29 1.5-.14 3.09-1.01 4.14v3.44h1.63c5.63-5.18 5.51-11.43 5.51-11.43z" />
                 <path fill="#34A853" d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.44-3.44c-1.12.75-2.56 1.2-4.52 1.2-3.48 0-6.44-2.35-7.51-5.51H.74v3.47C2.72 21.2 7.01 24 12 24z" />
                 <path fill="#FBBC05" d="M4.49 13.34C4.21 12.5 4.07 11.6 4.07 10.7c0-.9.14-1.8.42-2.64V4.59H.74C-.24 6.55-.24 8.75-.24 10.7c0 1.95 0 4.15.98 6.11l3.75-3.47z" />
-                <path fill="#EA4335" d="M12 4.15c1.77-.03 3.47.63 4.73 1.83l3.52-3.52C18.02 1.05 15.11 0 12 0 7.01 0 2.72 2.8 0 6.11l3.75 3.47c1.07-3.16 4.03-5.51 7.51-5.51z" />
+                <path fill="#EA4335" d="M12 4.15c1.77-.03 3.47.63 4.73 1.83l3.52-3.52C18.02 1.05 15.11 0 12 0 7.01 0 2.8 0 6.11l3.75 3.47c1.07-3.16 4.03-5.51 7.51-5.51z" />
               </svg>
               使用 Google 帳戶快速安全登入
             </button>
             <p className="text-[9px] text-[#64748b] text-center leading-normal">
               ⚠️ 備註：在特定嵌入式沙盒環境中，瀏覽器會安全阻擋 Google 彈出視窗。若點擊無反應，請直接使用下方電子郵件「立即註冊」，功能完全相同。
             </p>
-
-            {/* 🏆 ONE-CLICK DEMO LOGIN (資深工科交易員特設：沙盒無縫預覽) */}
-            <div className="bg-[#1b2030]/30 border border-[#2d364f]/50 rounded-xl p-3.5 text-xs text-left space-y-2">
- 
 
             <div className="flex items-center gap-3">
               <div className="h-[1px] bg-[#1b212f] flex-1" />
@@ -3267,7 +3263,7 @@ export default function App() {
 
       {/* FOOTER */}
       <footer className="bg-[#050608] border-t border-[#121622] py-6 px-6 text-center text-[10px] text-[#64748b]">
-        <p>© 2026 QuantTrader Pro. 經 BingX 實時永續算術引擎與資深網頁工程架構編譯。</p>
+        <p>© 2026 QuantTrader Pro. 經Zeeu編譯。</p>
       </footer>
 
     </div>
