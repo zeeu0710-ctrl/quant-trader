@@ -1123,6 +1123,144 @@ export default function App() {
     reader.readAsText(file, "UTF-8");
   };
 
+  // ============================================================================
+  // PERFORMANCE ANALYTICS ENGINE (EXCLUDES HEDGED TRADES FROM WINRATE)
+  // ============================================================================
+  const stats = useMemo(() => {
+    const closedTrades = records.filter(rec => rec.winLoss !== '➖ 平');
+    const conventionalTrades = closedTrades.filter(rec => rec.hedged !== '是');
+    
+    const totalTrades = records.length;
+    const wins = conventionalTrades.filter(rec => rec.winLoss.includes('勝')).length;
+    const losses = conventionalTrades.filter(rec => rec.winLoss.includes('敗')).length;
+    
+    const winRate = conventionalTrades.length > 0 ? (wins / conventionalTrades.length) * 100 : 0;
+    const totalHedged = records.filter(rec => rec.hedged === '是').length;
+    const closedHedged = closedTrades.filter(rec => rec.hedged === 'true' || rec.hedged === '是').length;
+
+    let totalProfit = 0;
+    let totalLoss = 0;
+    let totalR = 0;
+    let actualPnLSum = 0;
+
+    records.forEach(rec => {
+      const pnl = parseFloat(rec.actualPnL) || 0;
+      actualPnLSum += pnl;
+      totalR += parseFloat(rec.actualR) || 0;
+
+      if (pnl > 0) {
+        totalProfit += pnl;
+      } else {
+        totalLoss += Math.abs(pnl);
+      }
+    });
+
+    const profitFactor = totalLoss > 0 ? (totalProfit / totalLoss) : totalProfit > 0 ? 99.9 : 0;
+
+    const coinStats = {};
+    records.forEach(rec => {
+      if (!coinStats[rec.coin]) {
+        coinStats[rec.coin] = { count: 0, wins: 0, pnl: 0, hedgedCount: 0 };
+      }
+      coinStats[rec.coin].pnl += parseFloat(rec.actualPnL) || 0;
+      
+      if (rec.hedged === '是') {
+        coinStats[rec.coin].hedgedCount += 1;
+      } else {
+        coinStats[rec.coin].count += 1;
+        if (rec.winLoss.includes('勝')) {
+          coinStats[rec.coin].wins += 1;
+        }
+      }
+    });
+
+    const strategyStats = {};
+    records.forEach(rec => {
+      const strat = rec.strategy || '未設定';
+      if (!strategyStats[strat]) {
+        strategyStats[strat] = { count: 0, wins: 0, pnl: 0 };
+      }
+      strategyStats[strat].count += 1;
+      strategyStats[strat].pnl += parseFloat(rec.actualPnL) || 0;
+      if (rec.winLoss.includes('勝')) {
+        strategyStats[strat].wins += 1;
+      }
+    });
+
+    const mistakeStats = {};
+    records.forEach(rec => {
+      const tag = rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅';
+      if (!mistakeStats[tag]) {
+        mistakeStats[tag] = { count: 0, pnl: 0 };
+      }
+      mistakeStats[tag].count += 1;
+      mistakeStats[tag].pnl += parseFloat(rec.actualPnL) || 0;
+    });
+
+    return {
+      totalTrades,
+      closedTrades: closedTrades.length,
+      conventionalTradesCount: conventionalTrades.length,
+      wins,
+      losses,
+      winRate: winRate.toFixed(1),
+      profitFactor: profitFactor.toFixed(2),
+      totalR: totalR.toFixed(2),
+      actualPnLSum: actualPnLSum.toFixed(2),
+      totalHedged,
+      closedHedged,
+      coinStats,
+      strategyStats,
+      mistakeStats
+    };
+  }, [records]);
+
+  // Equity Curve Timeline Data
+  const chartPoints = useMemo(() => {
+    const sorted = [...records].sort((a, b) => {
+      return new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`);
+    });
+
+    // 💡 Prevent string concatenation error on setting initial capital
+    const baseCapital = parseFloat(activeMemberConfig?.defaultRiskCapital) || 10000;
+    let currentBalance = baseCapital;
+    let currentR = 0;
+    const points = [{ balance: currentBalance, r: 0, date: '初始狀態' }];
+
+    sorted.forEach(rec => {
+      currentBalance += parseFloat(rec.actualPnL) || 0;
+      currentR += parseFloat(rec.actualR) || 0;
+      points.push({
+        balance: currentBalance,
+        r: currentR,
+        date: `${rec.date} ${rec.time}`,
+        coin: rec.coin
+      });
+    });
+
+    return points;
+  }, [records, activeMemberConfig]);
+
+  // Optimized SVG Line Chart
+  const chartVisualData = useMemo(() => {
+    if (chartPoints.length <= 1) return null;
+    const maxBalance = Math.max(...chartPoints.map(p => p.balance)) * 1.05;
+    const minBalance = Math.min(...chartPoints.map(p => p.balance)) * 0.95;
+    const range = maxBalance - minBalance || 1000;
+    
+    const widthInterval = 1000 / (chartPoints.length - 1);
+    const points = chartPoints.map((pt, idx) => {
+      const x = idx * widthInterval;
+      const y = 300 - ((pt.balance - minBalance) / range) * 230 - 35; 
+      return { x, y, pt, idx };
+    });
+
+    const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
+    const areaStr = `${pointsStr} 1000,300 0,300`;
+
+    return { points, pointsStr, areaStr };
+  }, [chartPoints]);
+
   return (
     <div className="min-h-screen bg-[#0a0c10] text-[#e2e8f0] font-sans flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
       
@@ -1273,7 +1411,9 @@ export default function App() {
         <div className="flex items-center gap-3 text-xs font-mono">
           <div className="hidden lg:flex flex-col text-right">
             <span className="text-[#64748b] text-[10px] uppercase tracking-wider">帳戶USDT</span>
-            <span className="text-emerald-400 font-bold">${activeMemberConfig.defaultRiskCapital.toLocaleString()} {activeMemberConfig.baseCurrency}</span>
+            <span className="text-emerald-400 font-bold">
+              ${(parseFloat(activeMemberConfig?.defaultRiskCapital) || 10000).toLocaleString()} {activeMemberConfig.baseCurrency}
+            </span>
           </div>
 
           <div className="h-8 w-[1px] bg-[#1a212f] hidden lg:block" />
@@ -1341,7 +1481,7 @@ export default function App() {
                     }`}
                     disabled={isInspecting}
                   >
-                    LONG / 多單
+                    BUY / 多單
                   </button>
                   <button 
                     onClick={() => handlePlannerChange('direction', '空')}
@@ -1352,12 +1492,12 @@ export default function App() {
                     }`}
                     disabled={isInspecting}
                   >
-                    SHORT / 空單
+                    SELL / 空單
                   </button>
                 </div>
               </div>
 
-              {/* Calculator Parameters Grid (Enhanced with Date & Time Custom Inputs) */}
+              {/* Calculator Parameters Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Custom Coin Input & Dropdown Integrator */}
                 <div>
@@ -1416,7 +1556,7 @@ export default function App() {
 
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">
-                    SL
+                    SL (止損線)
                   </label>
                   <div className="relative font-mono">
                     <input 
@@ -2171,7 +2311,9 @@ export default function App() {
                 </div>
                 <div className="text-right text-xs font-mono">
                   <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
-                  <span className="text-[#94a3b8] font-bold">終端餘額: ${chartPoints[chartPoints.length - 1].balance.toFixed(2)} USDT</span>
+                  <span className="text-[#94a3b8] font-bold">
+                    終端餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
+                  </span>
                 </div>
               </div>
 
@@ -2224,7 +2366,7 @@ export default function App() {
                           stroke="#10b981" 
                           strokeWidth="2" 
                         />
-                        <title>{`餘額: $${p.pt.balance.toFixed(2)} | 時間: ${p.pt.date}`}</title>
+                        <title>{`餘額: $${parseFloat(p.pt.balance).toFixed(2)} | 時間: ${p.pt.date}`}</title>
                       </g>
                     ))}
                   </svg>
@@ -2596,8 +2738,8 @@ export default function App() {
                   <span>👑</span> QuantTrader 團隊教練與權限管理中控台
                 </h2>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  您目前的帳戶信箱具備安全解鎖的 <span className="text-violet-400 font-bold uppercase">{currentUserRole}</span> 權限。
-                  在此您可以查看學員覆盤日誌、修改用續費率。
+                  您目前的帳戶信箱具備安全解鎖的 <span className="text-violet-400 font-bold uppercase">{currentUserRole}</span> 權限（無需依靠金鑰，純由管理者登入認證直達）。
+                  在此您可以穿透監看特定學員覆盤日誌、分發全域策略。
                 </p>
               </div>
               <div className="bg-violet-950/30 border border-violet-500/20 rounded-xl px-4 py-2 text-xs font-mono">
@@ -2617,17 +2759,17 @@ export default function App() {
                   <div className="bg-gradient-to-br from-[#1c1530]/90 to-[#12101e]/95 rounded-2xl border border-violet-500/20 p-6 shadow-xl space-y-4">
                     <div className="border-b border-violet-500/10 pb-3 flex items-center justify-between">
                       <h3 className="font-bold text-xs text-violet-300 flex items-center gap-2 uppercase tracking-wider">
-                        <span>🛡️</span> 創立管理員帳戶
+                        <span>🛡️</span> 創立團隊管理幹部 (擁有者特權)
                       </h3>
                       <span className="text-[9px] bg-violet-500/15 text-violet-400 px-2 py-0.5 rounded font-mono font-bold">BYPASS LOGOUT</span>
                     </div>
 
                     <form onSubmit={handleCreateStaffAccount} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">管理員暱稱</label>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">管理幹部暱稱</label>
                         <input 
                           type="text" 
-                          placeholder="幣聖課"
+                          placeholder="例如: 幣聖教練"
                           value={staffNickname}
                           onChange={(e) => setStaffNickname(e.target.value)}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none transition-all"
@@ -2642,9 +2784,9 @@ export default function App() {
                           onChange={(e) => setStaffRole(e.target.value)}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-violet-400 focus:outline-none transition-all font-mono"
                         >
-                          <option value="admin">Admin</option>
-                          <option value="viewer">Viewer</option>
-                          <option value="member">Member</option>
+                          <option value="admin">副管理人員 (Admin)</option>
+                          <option value="viewer">唯讀檢視教練 (Viewer)</option>
+                          <option value="member">常規PRO學員 (Member)</option>
                         </select>
                       </div>
 
@@ -2652,7 +2794,7 @@ export default function App() {
                         <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">設定登入電子信箱 (Email)</label>
                         <input 
                           type="email" 
-                          placeholder="例如: coach@gmail.com"
+                          placeholder="例如: coach@quanttrader.pro"
                           value={staffEmail}
                           onChange={(e) => setStaffEmail(e.target.value)}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none font-mono transition-all"
@@ -2994,6 +3136,42 @@ export default function App() {
               ⚠️ 備註：在特定嵌入式沙盒環境中，瀏覽器會安全阻擋 Google 彈出視窗。若點擊無反應，請直接使用下方電子郵件「立即註冊」，功能完全相同。
             </p>
 
+            {/* 🏆 ONE-CLICK DEMO LOGIN (資深工科交易員特設：沙盒無縫預覽) */}
+            <div className="bg-[#1b2030]/30 border border-[#2d364f]/50 rounded-xl p-3.5 text-xs text-left space-y-2">
+              <span className="text-emerald-400 font-bold flex items-center gap-1">
+                <span>⚡</span> 擁有者一鍵無縫體驗入口 (Sandbox 演示通道)
+              </span>
+              <p className="text-[10px] text-slate-400 leading-relaxed">
+                如果您在當前沙盒中遇見 Google 彈窗阻擋，請直接點擊下方按鈕，系統將自動填寫最高權限信箱 <span className="text-[#f8fafc] font-bold font-mono">zeeu0710@gmail.com</span>：
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthEmail('zeeu0710@gmail.com');
+                    setAuthPassword('ZeeeU2026!');
+                    setAuthMode('login');
+                    showToast("已自動載入擁有者測試信箱與預配密碼！請點選「安全登入終端」即可進入", "info");
+                  }}
+                  className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all"
+                >
+                  填入擁有者信箱 👑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthEmail('coach@quanttrader.pro');
+                    setAuthPassword('coach2026');
+                    setAuthMode('login');
+                    showToast("已自動載入副管理員(Admin)測試信箱！請點選「安全登入終端」", "info");
+                  }}
+                  className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all"
+                >
+                  填入副管理(Admin) 🛠️
+                </button>
+              </div>
+            </div>
+
             <div className="flex items-center gap-3">
               <div className="h-[1px] bg-[#1b212f] flex-1" />
               <span className="text-[9px] text-[#64748b] uppercase font-bold tracking-wider">或使用實名信箱</span>
@@ -3036,8 +3214,6 @@ export default function App() {
                 {authLoading ? '正在連結實時量化資料庫...' : authMode === 'login' ? '🔓 安全登入終端' : '🚀 註冊並發送安全認證信'}
               </button>
             </form>
-
-          
 
             <div className="text-center text-xs">
               {authMode === 'login' ? (
