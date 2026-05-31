@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, deleteApp } from 'firebase/app';
 import { 
   getAuth, 
   signInWithCustomToken, 
@@ -10,7 +10,8 @@ import {
   sendEmailVerification,
   signInWithPopup,
   GoogleAuthProvider,
-  signOut
+  signOut,
+  updatePassword
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -20,6 +21,24 @@ import {
   collection, 
   onSnapshot 
 } from 'firebase/firestore';
+
+// ============================================================================
+// HELPER FUNCTIONS FOR LOCAL DATE & TIME INITIALIZATION
+// ============================================================================
+const getLocalDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getLocalTimeString = () => {
+  const d = new Date();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
 
 // ============================================================================
 // FIREBASE CONFIG & INITIALIZATION (SECURE & CUSTOMIZED TO YOUR PROJECT)
@@ -58,6 +77,18 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+
+  // Change Password States
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // Create Staff Account States (Used by Owner)
+  const [staffEmail, setStaffEmail] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [staffNickname, setStaffNickname] = useState('');
+  const [staffRole, setStaffRole] = useState('admin'); // admin, viewer, member
+  const [staffLoading, setStaffLoading] = useState(false);
 
   // Custom UI Modals (Replaces native blocking alerts/confirm)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
@@ -98,8 +129,8 @@ export default function App() {
   const currentUserRole = useMemo(() => {
     if (!user) return 'member';
     
-    // Hardcoded safety fallback for the Owner/Super Admin email address
-    if (user.email === 'admin@quanttrader.pro') return 'owner';
+    // 🛡️ Hardcoded Owner Account (Configured as zeeu0710@gmail.com / zeeu0710@gamil.com)
+    if (user.email === 'zeeu0710@gmail.com' || user.email === 'zeeu0710@gamil.com') return 'owner';
     if (user.email === 'coach@quanttrader.pro') return 'admin';
     if (user.email === 'viewer@quanttrader.pro') return 'viewer';
     
@@ -171,7 +202,7 @@ export default function App() {
     }
   ]);
 
-  // Trade Planner State (Timeframe custom list + SL Renaming + Risk Auto-sizing)
+  // Trade Planner State (Timeframe custom list + SL Renaming + Risk Auto-sizing + Custom Date/Time)
   const [planner, setPlanner] = useState({
     coin: 'BTC',
     timeframe: '1小時',
@@ -189,6 +220,8 @@ export default function App() {
     useSmartSizing: false, 
     riskAmount: 100, // Capital at risk per trade (R)
     leverageSizing: 20, // Slider for margin estimation
+    date: getLocalDateString(), // User customizable open date
+    time: getLocalTimeString(), // User customizable open time
     tps: [
       { id: 1, price: 70000, percent: 50, active: true },
       { id: 2, price: 72000, percent: 30, active: true },
@@ -232,7 +265,7 @@ export default function App() {
         
         // Auto assign profile role based on email on login/auth state change
         let resolvedRole = 'member';
-        if (currentUser.email === 'admin@quanttrader.pro') resolvedRole = 'owner';
+        if (currentUser.email === 'zeeu0710@gmail.com' || currentUser.email === 'zeeu0710@gamil.com') resolvedRole = 'owner';
         else if (currentUser.email === 'coach@quanttrader.pro') resolvedRole = 'admin';
         else if (currentUser.email === 'viewer@quanttrader.pro') resolvedRole = 'viewer';
 
@@ -293,7 +326,7 @@ export default function App() {
         setGlobalSettings(data);
         setEditingGlobal(data); 
       } else {
-        if (user.email === 'admin@quanttrader.pro' || currentUserRole === 'owner') {
+        if (user.email === 'zeeu0710@gmail.com' || user.email === 'zeeu0710@gamil.com' || currentUserRole === 'owner') {
           setDoc(globalSettingsRef, globalSettings);
         }
       }
@@ -443,15 +476,77 @@ export default function App() {
     }
   };
 
-  // Load from LocalStorage if offline/local
-  useEffect(() => {
-    if (isLocalMode) {
-      const localRecs = localStorage.getItem('quant_records');
-      const localMemberConfig = localStorage.getItem('quant_member_config');
-      if (localRecs) setRecords(JSON.parse(localRecs));
-      if (localMemberConfig) setMemberConfig(JSON.parse(localMemberConfig));
+  // F. 👑 Owner Action: Create New Admin/Staff Account (Information Engineer Workaround)
+  const handleCreateStaffAccount = async (e) => {
+    e.preventDefault();
+    if (!isOwner) {
+      showToast("安全防線：只有擁有者（Owner）具備建立團隊管理人員的權限！", "error");
+      return;
     }
-  }, [isLocalMode]);
+    if (!staffEmail || !staffPassword || !staffNickname) {
+      showToast("請填寫完整的工作人員帳密與暱稱！", "warning");
+      return;
+    }
+    if (staffPassword.length < 6) {
+      showToast("密碼長度必須大於 6 個字元！", "warning");
+      return;
+    }
+
+    setStaffLoading(true);
+    let secondaryApp = null;
+    try {
+      // 💡 Engineer logic: Initialize a dynamic secondary App so it doesn't log out current Owner session
+      const secondaryAppName = `Secondary-Staff-Creator-${Date.now()}`;
+      secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+      const secondaryAuth = getAuth(secondaryApp);
+
+      // Create credential on secondary auth instance
+      const credential = await createUserWithEmailAndPassword(secondaryAuth, staffEmail, staffPassword);
+      const newUid = credential.user.uid;
+
+      // Send verification email to the newly created manager
+      await sendEmailVerification(credential.user);
+
+      // Instantly sign out of the secondary auth session
+      await signOut(secondaryAuth);
+
+      // Register the new user in public directory and provision default profile
+      const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'users_directory', newUid);
+      await setDoc(dirRef, {
+        uid: newUid,
+        email: staffEmail,
+        nickname: staffNickname,
+        role: staffRole,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Write private sandbox space config for them
+      const privateConfigRef = doc(db, 'artifacts', appId, 'users', newUid, 'trading_config', 'main');
+      await setDoc(privateConfigRef, {
+        records: [],
+        memberConfig: {
+          nickname: staffNickname,
+          defaultRiskCapital: 10000,
+          baseCurrency: 'USDT',
+          role: staffRole
+        },
+        updatedAt: new Date().toISOString()
+      });
+
+      showToast(`🎉 成功建立 ${staffRole.toUpperCase()} 帳號並已發送驗證信！`, "success");
+      setStaffEmail('');
+      setStaffPassword('');
+      setStaffNickname('');
+    } catch (err) {
+      console.error(err);
+      showToast(`建立新管理帳號失敗: ${err.message}`, "error");
+    } finally {
+      if (secondaryApp) {
+        await deleteApp(secondaryApp).catch(console.error);
+      }
+      setStaffLoading(false);
+    }
+  };
 
   // ============================================================================
   // ADVANCED AUTHENTICATION FLOWS (EMAIL & GOOGLE AUTH)
@@ -521,7 +616,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Google authentication failed:", error);
-      showToast("Google 認證失敗，若處於沙盒內請使用信箱登入", "warning");
+      showToast("Google 登入在嵌入式沙盒中因安全限制受阻，請直接使用信箱註冊/登入！", "warning");
     } finally {
       setAuthLoading(false);
     }
@@ -533,7 +628,7 @@ export default function App() {
       await sendEmailVerification(user);
       showToast("驗證郵件重發成功，請確認垃圾信件匣", "success");
     } catch (err) {
-      showToast("發送頻率過快，請稍候再試", "error");
+      showToast("發送郵件失敗，請稍候再試", "error");
     }
   };
 
@@ -551,6 +646,31 @@ export default function App() {
       showToast("已安全登出帳號，返回訪客模式", "info");
     } catch (err) {
       showToast("登出失敗", "error");
+    }
+  };
+
+  // Secure Password Update Handler
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    if (!newPassword || newPassword.length < 6) {
+      showToast("新密碼長度必須至少為 6 個字元！", "warning");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      showToast("兩次輸入的新密碼不一致！", "error");
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+      showToast("🔑 密碼變更成功！請牢記您的新密碼", "success");
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err) {
+      console.error(err);
+      showToast(`密碼變更失敗: ${err.message}`, "error");
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -786,15 +906,12 @@ export default function App() {
       return;
     }
 
-    const now = new Date();
-    const formattedDate = now.toISOString().split('T')[0];
-    const formattedTime = now.toTimeString().split(' ')[0].substring(0, 5);
     const formattedCoin = (planner.coin || 'BTC').trim().toUpperCase();
 
     const newRecord = {
       id: 'trade-' + Date.now(),
-      date: formattedDate,
-      time: formattedTime,
+      date: planner.date || getLocalDateString(), // Fully customizable
+      time: planner.time || getLocalTimeString(), // Fully customizable
       coin: formattedCoin,
       timeframe: planner.timeframe,
       direction: planner.direction,
@@ -1005,142 +1122,6 @@ export default function App() {
     };
     reader.readAsText(file, "UTF-8");
   };
-
-  // ============================================================================
-  // PERFORMANCE ANALYTICS ENGINE (EXCLUDES HEDGED TRADES FROM WINRATE)
-  // ============================================================================
-  const stats = useMemo(() => {
-    const closedTrades = records.filter(rec => rec.winLoss !== '➖ 平');
-    const conventionalTrades = closedTrades.filter(rec => rec.hedged !== '是');
-    
-    const totalTrades = records.length;
-    const wins = conventionalTrades.filter(rec => rec.winLoss.includes('勝')).length;
-    const losses = conventionalTrades.filter(rec => rec.winLoss.includes('敗')).length;
-    
-    const winRate = conventionalTrades.length > 0 ? (wins / conventionalTrades.length) * 100 : 0;
-    const totalHedged = records.filter(rec => rec.hedged === '是').length;
-    const closedHedged = closedTrades.filter(rec => rec.hedged === 'true' || rec.hedged === '是').length;
-
-    let totalProfit = 0;
-    let totalLoss = 0;
-    let totalR = 0;
-    let actualPnLSum = 0;
-
-    records.forEach(rec => {
-      const pnl = parseFloat(rec.actualPnL) || 0;
-      actualPnLSum += pnl;
-      totalR += parseFloat(rec.actualR) || 0;
-
-      if (pnl > 0) {
-        totalProfit += pnl;
-      } else {
-        totalLoss += Math.abs(pnl);
-      }
-    });
-
-    const profitFactor = totalLoss > 0 ? (totalProfit / totalLoss) : totalProfit > 0 ? 99.9 : 0;
-
-    const coinStats = {};
-    records.forEach(rec => {
-      if (!coinStats[rec.coin]) {
-        coinStats[rec.coin] = { count: 0, wins: 0, pnl: 0, hedgedCount: 0 };
-      }
-      coinStats[rec.coin].pnl += parseFloat(rec.actualPnL) || 0;
-      
-      if (rec.hedged === '是') {
-        coinStats[rec.coin].hedgedCount += 1;
-      } else {
-        coinStats[rec.coin].count += 1;
-        if (rec.winLoss.includes('勝')) {
-          coinStats[rec.coin].wins += 1;
-        }
-      }
-    });
-
-    const strategyStats = {};
-    records.forEach(rec => {
-      const strat = rec.strategy || '未設定';
-      if (!strategyStats[strat]) {
-        strategyStats[strat] = { count: 0, wins: 0, pnl: 0 };
-      }
-      strategyStats[strat].count += 1;
-      strategyStats[strat].pnl += parseFloat(rec.actualPnL) || 0;
-      if (rec.winLoss.includes('勝')) {
-        strategyStats[strat].wins += 1;
-      }
-    });
-
-    const mistakeStats = {};
-    records.forEach(rec => {
-      const tag = rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅';
-      if (!mistakeStats[tag]) {
-        mistakeStats[tag] = { count: 0, pnl: 0 };
-      }
-      mistakeStats[tag].count += 1;
-      mistakeStats[tag].pnl += parseFloat(rec.actualPnL) || 0;
-    });
-
-    return {
-      totalTrades,
-      closedTrades: closedTrades.length,
-      conventionalTradesCount: conventionalTrades.length,
-      wins,
-      losses,
-      winRate: winRate.toFixed(1),
-      profitFactor: profitFactor.toFixed(2),
-      totalR: totalR.toFixed(2),
-      actualPnLSum: actualPnLSum.toFixed(2),
-      totalHedged,
-      closedHedged,
-      coinStats,
-      strategyStats,
-      mistakeStats
-    };
-  }, [records]);
-
-  // Equity Curve Timeline Data
-  const chartPoints = useMemo(() => {
-    const sorted = [...records].sort((a, b) => {
-      return new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`);
-    });
-
-    let currentBalance = activeMemberConfig.defaultRiskCapital;
-    let currentR = 0;
-    const points = [{ balance: currentBalance, r: 0, date: '初始狀態' }];
-
-    sorted.forEach(rec => {
-      currentBalance += parseFloat(rec.actualPnL) || 0;
-      currentR += parseFloat(rec.actualR) || 0;
-      points.push({
-        balance: currentBalance,
-        r: currentR,
-        date: `${rec.date} ${rec.time}`,
-        coin: rec.coin
-      });
-    });
-
-    return points;
-  }, [records, activeMemberConfig.defaultRiskCapital]);
-
-  // Optimized SVG Line Chart
-  const chartVisualData = useMemo(() => {
-    if (chartPoints.length <= 1) return null;
-    const maxBalance = Math.max(...chartPoints.map(p => p.balance)) * 1.05;
-    const minBalance = Math.min(...chartPoints.map(p => p.balance)) * 0.95;
-    const range = maxBalance - minBalance || 1000;
-    
-    const widthInterval = 1000 / (chartPoints.length - 1);
-    const points = chartPoints.map((pt, idx) => {
-      const x = idx * widthInterval;
-      const y = 300 - ((pt.balance - minBalance) / range) * 230 - 35; 
-      return { x, y, pt, idx };
-    });
-
-    const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-    const areaStr = `${pointsStr} 1000,300 0,300`;
-
-    return { points, pointsStr, areaStr };
-  }, [chartPoints]);
 
   return (
     <div className="min-h-screen bg-[#0a0c10] text-[#e2e8f0] font-sans flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
@@ -1376,7 +1357,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Calculator Parameters */}
+              {/* Calculator Parameters Grid (Enhanced with Date & Time Custom Inputs) */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Custom Coin Input & Dropdown Integrator */}
                 <div>
@@ -1466,9 +1447,6 @@ export default function App() {
                     />
                     <span className="absolute right-3.5 top-2.5 text-[9px] font-bold text-[#64748b]">USDT</span>
                   </div>
-                  <p className="text-[9px] text-[#64748b] mt-1.5 leading-normal">
-                    📌 註：BingX 標準倉位價值。例如: 保證金 100 USDT × 槓桿 50x ＝ 訂單價值 5,000 USDT。
-                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -1496,6 +1474,35 @@ export default function App() {
                     />
                   </div>
                 </div>
+
+                {/* 🏆 USER INPUT: TRADE OPEN DATE */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">
+                    開倉日期 (Date)
+                  </label>
+                  <input 
+                    type="date" 
+                    value={planner.date}
+                    onChange={(e) => handlePlannerChange('date', e.target.value)}
+                    className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-mono"
+                    disabled={isInspecting}
+                  />
+                </div>
+
+                {/* 🏆 USER INPUT: TRADE OPEN TIME */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">
+                    開倉時間 (Time)
+                  </label>
+                  <input 
+                    type="time" 
+                    value={planner.time}
+                    onChange={(e) => handlePlannerChange('time', e.target.value)}
+                    className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-mono"
+                    disabled={isInspecting}
+                  />
+                </div>
+
               </div>
 
               {/* R-Risk Position Sizing Module */}
@@ -1930,7 +1937,7 @@ export default function App() {
                   {records.length === 0 ? (
                     <tr>
                       <td colSpan="14" className="py-12 text-center text-[#64748b] font-medium">
-                        目並非覆盤紀錄。請先使用規劃器建立新計畫或匯入歷史 CSV 檔案。
+                        目前沒有覆盤紀錄。請先使用規劃器建立新計畫或匯入歷史 CSV 檔案。
                       </td>
                     </tr>
                   ) : (
@@ -2370,7 +2377,7 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-[#94a3b8] mb-1.5">資金額度 (R 本金母數)</label>
+                    <label className="block text-xs text-[#94a3b8] mb-1.5">初始模擬資金額度 (R 本金母數)</label>
                     <div className="relative font-mono">
                       <input 
                         type="number" 
@@ -2451,6 +2458,48 @@ export default function App() {
                   </button>
                 </div>
               </div>
+
+              {/* 🏆 USER ACTION: SECURE PASSWORD RESET CARD */}
+              {user && !user.isAnonymous && (
+                <div className="space-y-4 pt-4 border-t border-[#1b212f] animate-fadeIn">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-[#94a3b8] flex items-center gap-1.5">
+                    <span className="text-amber-400">🔑</span> 3. 變更登入密碼
+                  </h3>
+                  <form onSubmit={handleUpdatePassword} className="space-y-4 max-w-md">
+                    <div>
+                      <label className="block text-[10px] text-[#94a3b8] mb-1 uppercase font-bold tracking-wider">輸入新密碼</label>
+                      <input 
+                        type="password"
+                        placeholder="請輸入新密碼 (至少 6 位字元)"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-mono"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-[#94a3b8] mb-1 uppercase font-bold tracking-wider">再次確認新密碼</label>
+                      <input 
+                        type="password"
+                        placeholder="請再次輸入新密碼以供安全確認"
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-mono"
+                        required
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <button 
+                        type="submit"
+                        disabled={isChangingPassword}
+                        className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/35 px-5 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-40"
+                      >
+                        {isChangingPassword ? '正在更新金鑰...' : '安全變更終端密碼'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
 
             </div>
 
@@ -2538,10 +2587,10 @@ export default function App() {
             5. INDEPENDENT ADMIN PORTAL (EXCLUSIVE TO OWNER, ADMIN, VIEWER)
             ============================================================================ */}
         {activeTab === 'adminPortal' && isStaff && (
-          <div className="space-y-6 animate-fadeIn">
+          <div className="space-y-6 animate-fadeIn font-sans">
             
             {/* Header Status Bar */}
-            <div className="bg-gradient-to-r from-violet-950/20 to-indigo-950/10 border border-violet-500/15 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="bg-gradient-to-r from-violet-950/20 to-indigo-950/10 border border-violet-500/15 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-fadeIn">
               <div>
                 <h2 className="text-base font-black tracking-tight text-violet-300 flex items-center gap-2">
                   <span>👑</span> QuantTrader 團隊教練與權限管理中控台
@@ -2560,87 +2609,167 @@ export default function App() {
             {/* Core Admin Grid: Parameter Management & Member Directory */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               
-              {/* Left Panel: Member directory list (Fleet Monitor & RBAC settings) */}
-              <div className="lg:col-span-8 bg-[#11141c]/80 rounded-2xl border border-[#1b212f] p-6 shadow-xl space-y-4 backdrop-blur-sm">
-                <div className="border-b border-[#1b212f] pb-3 flex items-center justify-between">
-                  <h3 className="font-bold text-xs text-[#f8fafc] flex items-center gap-2">
-                    <span>👥</span> 實戰團隊成員與動態角色賦予
-                  </h3>
-                  <span className="text-[9px] text-slate-500 font-mono">同步方式: 實時訂閱 (onSnapshot)</span>
-                </div>
+              {/* Left Panel: Member directory list & STAFF CREATION INTERFACE */}
+              <div className="lg:col-span-8 space-y-6 animate-fadeIn">
+                
+                {/* 🛡️ 擁有者專屬：直接創立副管理與教練檢視人員帳號 (Owner Exclusive Account Generator) */}
+                {isOwner && (
+                  <div className="bg-gradient-to-br from-[#1c1530]/90 to-[#12101e]/95 rounded-2xl border border-violet-500/20 p-6 shadow-xl space-y-4">
+                    <div className="border-b border-violet-500/10 pb-3 flex items-center justify-between">
+                      <h3 className="font-bold text-xs text-violet-300 flex items-center gap-2 uppercase tracking-wider">
+                        <span>🛡️</span> 創立團隊核心幹部與工作人員帳戶 (擁有者特權)
+                      </h3>
+                      <span className="text-[9px] bg-violet-500/15 text-violet-400 px-2 py-0.5 rounded font-mono font-bold">BYPASS LOGOUT</span>
+                    </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs font-mono">
-                    <thead>
-                      <tr className="border-b border-[#1b212f] text-[#64748b] uppercase tracking-wider font-bold">
-                        <th className="py-2.5 px-4">學員暱稱 (Nickname)</th>
-                        <th className="py-2.5 px-3">信箱 (Email)</th>
-                        <th className="py-2.5 px-3">權限配發 (RBAC)</th>
-                        <th className="py-2.5 px-4 text-center">穿透式實時監督</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#1b212f]/30">
-                      {usersDirectory.map((member) => (
-                        <tr 
-                          key={member.uid} 
-                          className={`hover:bg-[#10131d]/50 transition-colors ${
-                            viewingUid === member.uid ? 'bg-violet-950/10' : ''
-                          }`}
+                    <form onSubmit={handleCreateStaffAccount} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">工作幹部暱稱</label>
+                        <input 
+                          type="text" 
+                          placeholder="例如: 台北戰隊教練"
+                          value={staffNickname}
+                          onChange={(e) => setStaffNickname(e.target.value)}
+                          className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none transition-all"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">指派系統角色</label>
+                        <select 
+                          value={staffRole}
+                          onChange={(e) => setStaffRole(e.target.value)}
+                          className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-violet-400 focus:outline-none transition-all font-mono"
                         >
-                          {/* Nickname */}
-                          <td className="py-3 px-4 font-bold text-emerald-400 flex items-center gap-1.5">
-                            <span>{member.nickname}</span>
-                            {member.uid === user?.uid && (
-                              <span className="text-[8px] bg-[#1a1f2e] text-slate-400 px-1.5 py-0.5 rounded">您自己</span>
-                            )}
-                          </td>
-                          {/* Email */}
-                          <td className="py-3 px-3 text-[#94a3b8]">{member.email}</td>
-                          {/* RBAC Role Selector Dropdown */}
-                          <td className="py-3 px-3">
-                            <select 
-                              value={member.role || 'member'}
-                              onChange={(e) => changeUserRoleInCloud(member.uid, e.target.value)}
-                              disabled={!isOwner || member.uid === user?.uid} // Only OWNER can demote/assign, cannot demote oneself
-                              className={`text-[10px] font-bold rounded px-2.5 py-1 bg-[#0a0c10] border ${
-                                member.role === 'owner' ? 'border-violet-500/40 text-violet-400' :
-                                member.role === 'admin' ? 'border-blue-500/40 text-blue-400' :
-                                member.role === 'viewer' ? 'border-amber-500/40 text-amber-400' :
-                                'border-slate-800 text-slate-400'
-                              } focus:outline-none`}
-                            >
-                              <option value="member">PRO 會員 (Member)</option>
-                              <option value="viewer">教練檢視 (Viewer)</option>
-                              <option value="admin">系統副管 (Admin)</option>
-                              <option value="owner">最高權限 (Owner)</option>
-                            </select>
-                            {!isOwner && (
-                              <span className="block text-[8px] text-rose-500/70 mt-1">🔒 唯獨最高管理者可修改</span>
-                            )}
-                          </td>
-                          {/* Inspection Action Trigger */}
-                          <td className="py-3 px-4 text-center">
-                            {viewingUid === member.uid ? (
-                              <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1 rounded-lg font-bold text-[9px]">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                                正在穿透監管中
-                              </span>
-                            ) : (
-                              <button 
-                                onClick={() => {
-                                  setViewingUid(member.uid);
-                                  showToast(`成功穿透！已載入學員 [${member.nickname}] 的覆盤日記`, "success");
-                                }}
-                                className="bg-[#1a1f2e] hover:bg-amber-500 hover:text-[#0d0f12] text-amber-400 px-3 py-1 rounded-lg font-bold transition-all border border-amber-500/15 text-[10px]"
-                              >
-                                👁️ 穿透監看
-                              </button>
-                            )}
-                          </td>
+                          <option value="admin">副管理人員 (Admin)</option>
+                          <option value="viewer">唯讀檢視教練 (Viewer)</option>
+                          <option value="member">常規PRO學員 (Member)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">設定登入電子信箱 (Email)</label>
+                        <input 
+                          type="email" 
+                          placeholder="例如: coach@quanttrader.pro"
+                          value={staffEmail}
+                          onChange={(e) => setStaffEmail(e.target.value)}
+                          className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none font-mono transition-all"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">設定初始安全密碼</label>
+                        <input 
+                          type="password" 
+                          placeholder="密碼長度需至少 6 位字元"
+                          value={staffPassword}
+                          onChange={(e) => setStaffPassword(e.target.value)}
+                          className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none font-mono transition-all"
+                          required
+                        />
+                      </div>
+
+                      <div className="md:col-span-2 flex justify-end pt-2">
+                        <button 
+                          type="submit"
+                          disabled={staffLoading}
+                          className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-extrabold py-3 px-8 rounded-xl text-xs tracking-wider transition-all disabled:opacity-40 shadow-lg shadow-violet-500/10 flex items-center gap-2"
+                        >
+                          {staffLoading ? (
+                            <>
+                              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              正在同步雲端安全協定...
+                            </>
+                          ) : '🚀 建立並安全派發信件憑證'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                <div className="bg-[#11141c]/80 rounded-2xl border border-[#1b212f] p-6 shadow-xl space-y-4">
+                  <div className="border-b border-[#1b212f] pb-3 flex items-center justify-between">
+                    <h3 className="font-bold text-xs text-[#f8fafc] flex items-center gap-2 uppercase tracking-wider">
+                      <span>👥</span> 實戰團隊學員權限與進階分配
+                    </h3>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs font-mono">
+                      <thead>
+                        <tr className="border-b border-[#1b212f] text-[#64748b] uppercase tracking-wider font-bold">
+                          <th className="py-2.5 px-4">學員暱稱 (Nickname)</th>
+                          <th className="py-2.5 px-3">信箱 (Email)</th>
+                          <th className="py-2.5 px-3">權限配發 (RBAC)</th>
+                          <th className="py-2.5 px-4 text-center">穿透式實時監督</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-[#1b212f]/30">
+                        {usersDirectory.map((member) => (
+                          <tr 
+                            key={member.uid} 
+                            className={`hover:bg-[#10131d]/50 transition-colors ${
+                              viewingUid === member.uid ? 'bg-violet-950/10' : ''
+                            }`}
+                          >
+                            {/* Nickname */}
+                            <td className="py-3 px-4 font-bold text-emerald-400 flex items-center gap-1.5">
+                              <span>{member.nickname}</span>
+                              {member.uid === user?.uid && (
+                                <span className="text-[8px] bg-[#1a1f2e] text-slate-400 px-1.5 py-0.5 rounded">您自己</span>
+                              )}
+                            </td>
+                            {/* Email */}
+                            <td className="py-3 px-3 text-[#94a3b8]">{member.email}</td>
+                            {/* RBAC Role Selector Dropdown */}
+                            <td className="py-3 px-3">
+                              <select 
+                                value={member.role || 'member'}
+                                onChange={(e) => changeUserRoleInCloud(member.uid, e.target.value)}
+                                disabled={!isOwner || member.uid === user?.uid} // Only OWNER can demote/assign, cannot demote oneself
+                                className={`text-[10px] font-bold rounded px-2.5 py-1 bg-[#0a0c10] border ${
+                                  member.role === 'owner' ? 'border-violet-500/40 text-violet-400' :
+                                  member.role === 'admin' ? 'border-blue-500/40 text-blue-400' :
+                                  member.role === 'viewer' ? 'border-amber-500/40 text-amber-400' :
+                                  'border-slate-800 text-slate-400'
+                                } focus:outline-none`}
+                              >
+                                <option value="member">PRO 會員 (Member)</option>
+                                <option value="viewer">教練檢視 (Viewer)</option>
+                                <option value="admin">系統副管 (Admin)</option>
+                                <option value="owner">最高權限 (Owner)</option>
+                              </select>
+                              {!isOwner && (
+                                <span className="block text-[8px] text-rose-500/70 mt-1">🔒 唯獨最高管理者可修改</span>
+                              )}
+                            </td>
+                            {/* Inspection Action Trigger */}
+                            <td className="py-3 px-4 text-center">
+                              {viewingUid === member.uid ? (
+                                <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 px-3 py-1 rounded-lg font-bold text-[9px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                  正在穿透監管中
+                                </span>
+                              ) : (
+                                <button 
+                                  onClick={() => {
+                                    setViewingUid(member.uid);
+                                    showToast(`成功穿透！已載入學員 [${member.nickname}] 的覆盤日記`, "success");
+                                  }}
+                                  className="bg-[#1a1f2e] hover:bg-amber-500 hover:text-[#0d0f12] text-amber-400 px-3 py-1 rounded-lg font-bold transition-all border border-amber-500/15 text-[10px]"
+                                >
+                                  👁️ 穿透監看
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
               </div>
@@ -2669,7 +2798,7 @@ export default function App() {
                           className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2 text-xs font-bold text-[#f8fafc] focus:outline-none"
                           disabled={isViewer}
                         />
-                        <span className="absolute right-3.5 top-2 text-xs font-bold text-[#64748b]%}%"></span>
+                        <span className="absolute right-3.5 top-2 text-xs font-bold text-[#64748b]">%</span>
                       </div>
                     </div>
 
@@ -2843,9 +2972,9 @@ export default function App() {
 
             <div className="text-center space-y-1">
               <h3 className="text-base font-black bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent uppercase tracking-wider">
-                {authMode === 'login' ? '🔑 進入量化實戰終端' : '🚀 註冊全新雲端交易帳戶'}
+                {authMode === 'login' ? '會員登入' : '註冊會員'}
               </h3>
-              <p className="text-[10px] text-[#64748b]">啟用 100% 雲端自動同步，防止本機快取遺失</p>
+              <p className="text-[10px] text-[#64748b]">啟用雲端自動同步，防止本機快取遺失</p>
             </div>
 
             <button
@@ -2861,6 +2990,9 @@ export default function App() {
               </svg>
               使用 Google 帳戶快速安全登入
             </button>
+            <p className="text-[9px] text-[#64748b] text-center leading-normal">
+              ⚠️ 備註：在特定嵌入式沙盒環境中，瀏覽器會安全阻擋 Google 彈出視窗。若點擊無反應，請直接使用下方電子郵件「立即註冊」，功能完全相同。
+            </p>
 
             <div className="flex items-center gap-3">
               <div className="h-[1px] bg-[#1b212f] flex-1" />
@@ -2875,7 +3007,7 @@ export default function App() {
                   type="email" 
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
-                  className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-mono"
                   placeholder="name@example.com"
                   required
                 />
@@ -2887,7 +3019,7 @@ export default function App() {
                   type="password" 
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
-                  className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-mono"
                   placeholder="••••••••"
                   required
                 />
@@ -2905,16 +3037,12 @@ export default function App() {
               </button>
             </form>
 
-            {/* Quick Demo Administrators Notice Info box */}
-            <div className="p-3 bg-violet-950/10 border border-violet-500/20 rounded-xl text-left text-[10px] leading-relaxed text-slate-400">
-              <span className="text-violet-300 font-bold block mb-1">🛠️ 管理者登入提示：</span>
-              本系統由系統管理員安全信箱直接配發中控權限。登入 <span className="text-violet-300 font-bold">admin@quanttrader.pro</span> 將自動賦予 Owner (擁有者) 指標面板，無須額外的提權密鑰。
-            </div>
+          
 
             <div className="text-center text-xs">
               {authMode === 'login' ? (
                 <p className="text-[#94a3b8]">
-                  還沒有實戰帳號嗎？{' '}
+                  還沒有帳號嗎？{' '}
                   <span 
                     onClick={() => setAuthMode('register')}
                     className="text-emerald-400 font-bold cursor-pointer hover:underline"
