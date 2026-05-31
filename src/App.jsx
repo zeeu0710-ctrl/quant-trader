@@ -19,7 +19,8 @@ import {
   setDoc, 
   getDoc, 
   collection, 
-  onSnapshot 
+  onSnapshot,
+  deleteDoc
 } from 'firebase/firestore';
 
 // ============================================================================
@@ -66,14 +67,14 @@ export default function App() {
   // APP STATES
   // ============================================================================
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState('planner'); // planner, journal, performance, settings, adminPortal
+  const [activeTab, setActiveTab] = useState('planner'); 
   const [toast, setToast] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLocalMode, setIsLocalMode] = useState(false);
 
   // Authentication Modals & UI States
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // login | register
+  const [authMode, setAuthMode] = useState('login'); 
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -87,54 +88,51 @@ export default function App() {
   const [staffEmail, setStaffEmail] = useState('');
   const [staffPassword, setStaffPassword] = useState('');
   const [staffNickname, setStaffNickname] = useState('');
-  const [staffRole, setStaffRole] = useState('admin'); // admin, viewer, member
+  const [staffRole, setStaffRole] = useState('admin'); 
   const [staffLoading, setStaffLoading] = useState(false);
 
-  // Custom UI Modals (Replaces native blocking alerts/confirm)
+  // Custom UI Modals 
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [confirmMigrationData, setConfirmMigrationData] = useState(null);
 
-  // Private Member Account Configuration (Private Sandbox space)
+  // Private Member Account Configuration
   const [memberConfig, setMemberConfig] = useState({
     nickname: '頂級交易員',
-    defaultRiskCapital: 10000,
+    defaultRiskCapital: '10000',
     baseCurrency: 'USDT',
-    role: 'member' // Default role - dynamically synced/elevated via DB
+    role: 'member'
   });
 
-  // Global Settings State (Admin editable, synced globally)
+  // Global Settings State
   const [globalSettings, setGlobalSettings] = useState({
-    makerFee: 0.02, // BingX Maker fee %
-    takerFee: 0.05, // BingX Taker fee %
+    makerFee: 0.02, 
+    takerFee: 0.05, 
     coins: ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX', 'LINK', 'BNB', 'ORDI', 'PEPE', 'SUI', 'TAO'],
     timeframes: ['3分鐘', '15分鐘', '1小時', '4小時', '1日'],
     strategies: ['Fibo+關鍵水平位支撐', '3+1策略', '馬刺策略', '突破盤整區追單', '流動性獵取']
   });
 
-  // Temp state to allow edits in admin tab before saving/publishing
   const [editingGlobal, setEditingGlobal] = useState({ ...globalSettings });
   const [newCoinInput, setNewCoinInput] = useState('');
   const [newStrategyInput, setNewStrategyInput] = useState('');
 
-  // All Users Directory (For Admin/Owner inspection & Role assignments)
   const [usersDirectory, setUsersDirectory] = useState([]);
-  
-  // The User UID currently active in the workspace panels
   const [viewingUid, setViewingUid] = useState(null);
   const [inspectedMemberConfig, setInspectedMemberConfig] = useState(null);
 
+  // Batch Delete States
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
+
   // ============================================================================
-  // RBAC RESOLVERS (Direct Account Login Role Determination)
+  // RBAC RESOLVERS 
   // ============================================================================
   const currentUserRole = useMemo(() => {
     if (!user) return 'member';
-    
-    // 🛡️ Hardcoded Owner Account (Configured as zeeu0710@gmail.com / zeeu0710@gamil.com)
     if (user.email === 'zeeu0710@gmail.com' || user.email === 'zeeu0710@gamil.com') return 'owner';
     if (user.email === 'coach@quanttrader.pro') return 'admin';
     if (user.email === 'viewer@quanttrader.pro') return 'viewer';
     
-    // Dynamic role resolving from Firestore Directory
     const liveProfile = usersDirectory.find(u => u.uid === user.uid);
     return liveProfile?.role || memberConfig.role || 'member';
   }, [user, usersDirectory, memberConfig.role]);
@@ -147,12 +145,11 @@ export default function App() {
     return isOwner || isAdmin || isViewer;
   }, [isOwner, isAdmin, isViewer]);
 
-  // Is current view panel locked in "Inspecting someone else" mode?
   const isInspecting = useMemo(() => {
     return user && viewingUid && viewingUid !== user.uid;
   }, [user, viewingUid]);
 
-  // Trading Journal State (Integrates "hedged" logic & Mistake Analysis)
+  // Trading Journal State 
   const [records, setRecords] = useState([
     {
       id: 'init-1',
@@ -162,7 +159,7 @@ export default function App() {
       timeframe: '1小時',
       direction: '空',
       strategy: 'SMC 訂單塊回測+流動性清算',
-      tpReached: '全部止盈', // Updated format
+      tpReached: '全部止盈', 
       slHit: '否',
       hedged: '否',
       riskCoeff: '1.0',
@@ -186,7 +183,7 @@ export default function App() {
       timeframe: '15分鐘',
       direction: '多',
       strategy: 'EMA 均線過度偏離修正',
-      tpReached: '觸發止損', // Updated format
+      tpReached: '觸發止損', 
       slHit: '是',
       hedged: '否',
       riskCoeff: '1.0',
@@ -204,31 +201,31 @@ export default function App() {
     }
   ]);
 
-  // Trade Planner State (Timeframe custom list + SL Renaming + Risk Auto-sizing + Custom Date/Time)
+  // Trade Planner State - Use empty strings '' instead of 0 to fix the blocking issue
   const [planner, setPlanner] = useState({
     coin: 'BTC',
     timeframe: '1小時',
     direction: '多', 
-    entryPrice: 68000,
-    orderValue: 10000, 
-    stopLossPrice: 67000,
+    entryPrice: '68000',
+    orderValue: '10000', 
+    stopLossPrice: '67000',
     strategy: 'SMC 訂單塊回測+流動性清算',
-    confidence: 8,
-    riskCoeff: 1.0,
+    confidence: '8',
+    riskCoeff: '1.0',
     reason: '',
     screenshot: '',
     hedged: '否', 
     mistakeTag: '無犯錯 (嚴格執行計畫) ✅',
     useSmartSizing: false, 
-    riskAmount: 100, // Capital at risk per trade (R)
-    leverageSizing: 20, // Slider for margin estimation
-    date: getLocalDateString(), // User customizable open date
-    time: getLocalTimeString(), // User customizable open time
+    riskAmount: '100', 
+    leverageSizing: '20', 
+    date: getLocalDateString(), 
+    time: getLocalTimeString(), 
     tps: [
-      { id: 1, price: 70000, percent: 50, active: true },
-      { id: 2, price: 72000, percent: 30, active: true },
-      { id: 3, price: 75000, percent: 20, active: true },
-      { id: 4, price: 0, percent: 0, active: false }
+      { id: 1, price: '70000', percent: '50', active: true },
+      { id: 2, price: '72000', percent: '30', active: true },
+      { id: 3, price: '75000', percent: '20', active: true },
+      { id: 4, price: '', percent: '', active: false }
     ]
   });
 
@@ -265,7 +262,6 @@ export default function App() {
         setViewingUid(currentUser.uid); 
         setIsLocalMode(false);
         
-        // Auto assign profile role based on email on login/auth state change
         let resolvedRole = 'member';
         if (currentUser.email === 'zeeu0710@gmail.com' || currentUser.email === 'zeeu0710@gamil.com') resolvedRole = 'owner';
         else if (currentUser.email === 'coach@quanttrader.pro') resolvedRole = 'admin';
@@ -282,7 +278,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Helper: Write user index into public directory
   const registerUserInDirectory = async (uid, email, nickname, assignedRole = 'member') => {
     if (!uid || isLocalMode) return;
     try {
@@ -290,7 +285,7 @@ export default function App() {
       const snap = await getDoc(dirRef);
       let roleToSave = assignedRole;
       if (snap.exists() && snap.data().role) {
-        roleToSave = snap.data().role; // Respect existing DB assignments over defaults
+        roleToSave = snap.data().role; 
       }
       
       const updatePayload = {
@@ -303,7 +298,6 @@ export default function App() {
 
       await setDoc(dirRef, updatePayload, { merge: true });
       
-      // Update local state if updating self
       if (uid === auth.currentUser?.uid) {
         setMemberConfig(prev => ({ ...prev, role: roleToSave }));
       }
@@ -313,10 +307,9 @@ export default function App() {
   };
 
   // ============================================================================
-  // DATABASE SYNCING (RULE 1 & RULE 2 COMPLIANT)
+  // DATABASE SYNCING
   // ============================================================================
   
-  // A. Sync Global Settings (Read by everyone, written by Owners & Admins only)
   useEffect(() => {
     if (!user || isLocalMode) return;
 
@@ -339,7 +332,6 @@ export default function App() {
     return () => unsubGlobal();
   }, [user, isLocalMode, currentUserRole]);
 
-  // B. Sync Private User Configuration and Journal (Dynamic Viewing Target)
   useEffect(() => {
     if (!user || !viewingUid || isLocalMode) return;
 
@@ -361,7 +353,7 @@ export default function App() {
       } else {
         if (viewingUid !== user.uid) {
           setRecords([]);
-          setInspectedMemberConfig({ nickname: '全新交易員', defaultRiskCapital: 10000, baseCurrency: 'USDT', role: 'member' });
+          setInspectedMemberConfig({ nickname: '全新交易員', defaultRiskCapital: '10000', baseCurrency: 'USDT', role: 'member' });
         }
       }
       setIsSyncing(false);
@@ -373,7 +365,6 @@ export default function App() {
     return () => unsubPrivate();
   }, [user, viewingUid, isLocalMode]);
 
-  // C. Sync Public Users Directory list (Only for verified Admins/Owners/Viewers)
   useEffect(() => {
     if (!isStaff || isLocalMode) {
       setUsersDirectory([]);
@@ -394,7 +385,6 @@ export default function App() {
     return () => unsubDir();
   }, [isStaff, isLocalMode]);
 
-  // Save private member configuration and logs to user space
   const savePrivateData = async (newRecords, newMemberConfig = null) => {
     if (isInspecting) {
       showToast("安全防線：監看狀態下禁止篡改學員實時數據！", "error");
@@ -427,7 +417,6 @@ export default function App() {
     }
   };
 
-  // D. Admin Action: Save Public Global Configuration
   const saveGlobalSettingsDoc = async (targetGlobalSettings) => {
     if (isViewer) {
       showToast("權限不足：檢視員不具備修改全域配置之權限！", "error");
@@ -456,7 +445,6 @@ export default function App() {
     }
   };
 
-  // E. Owner Action: Modify user roles inside the registered public directory
   const changeUserRoleInCloud = async (targetUid, nextRole) => {
     if (!isOwner) {
       showToast("安全防禦：非擁有者(Owner)無法異動其他成員的權限角色！", "error");
@@ -478,7 +466,6 @@ export default function App() {
     }
   };
 
-  // F. 👑 Owner Action: Create New Admin/Staff Account (Information Engineer Workaround)
   const handleCreateStaffAccount = async (e) => {
     e.preventDefault();
     if (!isOwner) {
@@ -497,22 +484,16 @@ export default function App() {
     setStaffLoading(true);
     let secondaryApp = null;
     try {
-      // 💡 Engineer logic: Initialize a dynamic secondary App so it doesn't log out current Owner session
       const secondaryAppName = `Secondary-Staff-Creator-${Date.now()}`;
       secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
       const secondaryAuth = getAuth(secondaryApp);
 
-      // Create credential on secondary auth instance
       const credential = await createUserWithEmailAndPassword(secondaryAuth, staffEmail, staffPassword);
       const newUid = credential.user.uid;
 
-      // Send verification email to the newly created manager
       await sendEmailVerification(credential.user);
-
-      // Instantly sign out of the secondary auth session
       await signOut(secondaryAuth);
 
-      // Register the new user in public directory and provision default profile
       const dirRef = doc(db, 'artifacts', appId, 'public', 'data', 'users_directory', newUid);
       await setDoc(dirRef, {
         uid: newUid,
@@ -522,13 +503,12 @@ export default function App() {
         updatedAt: new Date().toISOString()
       });
 
-      // Write private sandbox space config for them
       const privateConfigRef = doc(db, 'artifacts', appId, 'users', newUid, 'trading_config', 'main');
       await setDoc(privateConfigRef, {
         records: [],
         memberConfig: {
           nickname: staffNickname,
-          defaultRiskCapital: 10000,
+          defaultRiskCapital: '10000',
           baseCurrency: 'USDT',
           role: staffRole
         },
@@ -547,6 +527,49 @@ export default function App() {
         await deleteApp(secondaryApp).catch(console.error);
       }
       setStaffLoading(false);
+    }
+  };
+
+  // ============================================================================
+  // G. Owner Action: Batch Delete Users Data
+  // ============================================================================
+  const handleToggleSelectUser = (uid) => {
+    if (uid === user?.uid) return; // 防呆：不能刪除自己
+    setSelectedUsers(prev => 
+      prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+    );
+  };
+
+  const handleSelectAllUsers = (e) => {
+    if (e.target.checked) {
+      const selectable = usersDirectory.map(u => u.uid).filter(uid => uid !== user?.uid);
+      setSelectedUsers(selectable);
+    } else {
+      setSelectedUsers([]);
+    }
+  };
+
+  const executeBatchDeleteUsers = async () => {
+    if (!isOwner) {
+      showToast("權限不足：僅最高權限 (Owner) 可執行帳號抹除！", "error");
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      for (const uid of selectedUsers) {
+        // 從公開的 Directory 目錄中抹除
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users_directory', uid));
+        // 清空該使用者的私有參數 (相當於帳號重置)
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', uid, 'trading_config', 'main'));
+      }
+      showToast(`成功抹除 ${selectedUsers.length} 位學員的資料與權限！`, "success");
+      setSelectedUsers([]);
+    } catch (err) {
+      console.error(err);
+      showToast("批次抹除失敗，請檢查資料庫權限", "error");
+    } finally {
+      setIsSyncing(false);
+      setShowBatchDeleteModal(false);
     }
   };
 
@@ -639,7 +662,7 @@ export default function App() {
       await signOut(auth);
       setMemberConfig({
         nickname: '頂級交易員',
-        defaultRiskCapital: 10000,
+        defaultRiskCapital: '10000',
         baseCurrency: 'USDT',
         role: 'member'
       });
@@ -651,7 +674,6 @@ export default function App() {
     }
   };
 
-  // Secure Password Update Handler
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
     if (!newPassword || newPassword.length < 6) {
@@ -688,9 +710,6 @@ export default function App() {
     }
   };
 
-  // ============================================================================
-  // UTILITY ACTIONS
-  // ============================================================================
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
@@ -710,17 +729,13 @@ export default function App() {
     document.body.removeChild(tempTextArea);
   };
 
-  // Dynamically resolve active member configuration (swaps to guest when inspecting)
   const activeMemberConfig = useMemo(() => {
     if (isInspecting && inspectedMemberConfig) {
       return inspectedMemberConfig;
     }
     return memberConfig;
-  });
+  }, [isInspecting, inspectedMemberConfig, memberConfig]);
 
-  // ============================================================================
-  // PROFESSIONAL MISTAKE LOGGER DEFINITIONS (Trading Mindset & Psychology)
-  // ============================================================================
   const mistakeOptions = [
     '無犯錯 (嚴格執行計畫) ✅',
     'FOMO (恐慌性追高/空) 😱',
@@ -733,32 +748,65 @@ export default function App() {
   ];
 
   // ============================================================================
-  // PROFESSIONAL POSITION SIZING LOGIC & VERIFIABLE MATH DETAILS (BingX Centric)
+  // SAFETY WARNING SYSTEM (Checks for Long/Short Logical Flaws)
+  // ============================================================================
+  const plannerWarnings = useMemo(() => {
+    const warnings = [];
+    const ep = parseFloat(planner.entryPrice);
+    const slp = parseFloat(planner.stopLossPrice);
+    
+    if (!ep || isNaN(ep)) return warnings;
+
+    if (planner.direction === '多') {
+      if (slp && slp >= ep) {
+        warnings.push("多單的止損線 (SL) 必須低於開倉價！");
+      }
+      planner.tps.forEach(tp => {
+        const tpPrice = parseFloat(tp.price);
+        if (tp.active && tpPrice > 0 && tpPrice <= ep) {
+          if (!warnings.includes("多單的止盈價 (TP) 必須高於開倉價！")) {
+            warnings.push("多單的止盈價 (TP) 必須高於開倉價！");
+          }
+        }
+      });
+    } else if (planner.direction === '空') {
+      if (slp && slp <= ep) {
+        warnings.push("空單的止損線 (SL) 必須高於開倉價！");
+      }
+      planner.tps.forEach(tp => {
+        const tpPrice = parseFloat(tp.price);
+        if (tp.active && tpPrice > 0 && tpPrice >= ep) {
+          if (!warnings.includes("空單的止盈價 (TP) 必須低於開倉價！")) {
+            warnings.push("空單的止盈價 (TP) 必須低於開倉價！");
+          }
+        }
+      });
+    }
+    return warnings;
+  }, [planner]);
+
+  // ============================================================================
+  // PROFESSIONAL POSITION SIZING LOGIC 
   // ============================================================================
   const sizingReport = useMemo(() => {
-    const { entryPrice, stopLossPrice, riskAmount, leverageSizing } = planner;
-    if (!entryPrice || !stopLossPrice || entryPrice === stopLossPrice || !riskAmount) {
+    const ep = parseFloat(planner.entryPrice) || 0;
+    const slp = parseFloat(planner.stopLossPrice) || 0;
+    const risk = parseFloat(planner.riskAmount) || 0;
+    const lev = parseFloat(planner.leverageSizing) || 20;
+
+    if (!ep || !slp || ep === slp || !risk) {
       return { 
         slPct: 0, openFeeRate: 0, closeFeeRate: 0, totalFeeRate: 0, 
         recommendedSizing: 0, estimatedMargin: 0 
       };
     }
     
-    // 1. SL Distance Pct
-    const slPct = Math.abs(entryPrice - stopLossPrice) / entryPrice;
-    
-    // 2. Both side Taker Friction fee percent (Open & Close are both Market-triggered under SL)
-    const openFeeRate = globalSettings.takerFee / 100;
-    const closeFeeRate = globalSettings.takerFee / 100; // Under extreme SL triggers, taker fee is applied
+    const slPct = Math.abs(ep - slp) / ep;
+    const openFeeRate = (parseFloat(globalSettings.takerFee) || 0) / 100;
+    const closeFeeRate = (parseFloat(globalSettings.takerFee) || 0) / 100; 
     const totalFeeRate = openFeeRate + closeFeeRate;
-    
-    // 3. Recommended Order Value
-    // Formula: OrderValue = RiskAmount / (SL_Distance_Pct + TotalFeeRate)
-    const recommendedSizing = riskAmount / (slPct + totalFeeRate);
-    
-    // 4. Estimated Margin (Required Balance)
-    // Formula: Margin = OrderValue / Leverage
-    const estimatedMargin = recommendedSizing / leverageSizing;
+    const recommendedSizing = risk / (slPct + totalFeeRate);
+    const estimatedMargin = recommendedSizing / lev;
 
     return {
       slPct: parseFloat((slPct * 100).toFixed(4)), 
@@ -771,60 +819,61 @@ export default function App() {
   }, [planner.entryPrice, planner.stopLossPrice, planner.riskAmount, planner.leverageSizing, globalSettings]);
 
   // ============================================================================
-  // MATHEMATICAL CALCULATION ENGINE (BINGX COMPLIANT)
+  // MATHEMATICAL CALCULATION ENGINE 
   // ============================================================================
   const plannerCalculations = useMemo(() => {
-    const { direction, entryPrice, orderValue, stopLossPrice, tps } = planner;
-    const isLong = direction === '多';
+    const isLong = planner.direction === '多';
     
-    if (!entryPrice || !orderValue || !stopLossPrice || entryPrice <= 0) {
+    const ep = parseFloat(planner.entryPrice) || 0;
+    const ov = parseFloat(planner.orderValue) || 0;
+    const slp = parseFloat(planner.stopLossPrice) || 0;
+    
+    if (!ep || !ov || !slp || ep <= 0) {
       return { 
         openFee: 0, closeFeeSL: 0, pnlSL: 0, netPnlSL: 0, 
         plannedGrossPnL: 0, totalCloseFeePlanned: 0, netPlannedPnL: 0, expectedR: 0 
       };
     }
 
-    const openFeeRate = globalSettings.takerFee / 100; // Taker Open
-    const closeFeeRate = globalSettings.makerFee / 100; // Maker TP
-    const closeSLFeeRate = globalSettings.takerFee / 100; // Taker SL
+    const openFeeRate = (parseFloat(globalSettings.takerFee) || 0) / 100; 
+    const closeFeeRate = (parseFloat(globalSettings.makerFee) || 0) / 100; 
+    const closeSLFeeRate = (parseFloat(globalSettings.takerFee) || 0) / 100; 
 
-    const openFee = orderValue * openFeeRate;
+    const openFee = ov * openFeeRate;
 
-    const slPct = (stopLossPrice - entryPrice) / entryPrice;
-    const grossPnlSL = isLong 
-      ? orderValue * slPct 
-      : orderValue * (-slPct);
-    const closeFeeSL = orderValue * closeSLFeeRate;
+    const slPct = (slp - ep) / ep;
+    const grossPnlSL = isLong ? ov * slPct : ov * (-slPct);
+    const closeFeeSL = ov * closeSLFeeRate;
     const netPnlSL = grossPnlSL - closeFeeSL - openFee; 
 
     let cumulativeTpPercent = 0;
     let plannedGrossPnL = 0;
     let totalCloseFeePlanned = 0;
 
-    const activeTps = tps.filter(tp => tp.active && tp.price > 0 && tp.percent > 0);
+    const activeTps = planner.tps.filter(tp => tp.active && parseFloat(tp.price) > 0 && parseFloat(tp.percent) > 0);
     
     activeTps.forEach(tp => {
-      const tpPortionValue = orderValue * (tp.percent / 100);
-      const tpPct = (tp.price - entryPrice) / entryPrice;
-      const tpGross = isLong 
-        ? tpPortionValue * tpPct 
-        : tpPortionValue * (-tpPct);
+      const tpPctVal = parseFloat(tp.percent) || 0;
+      const tpPriceVal = parseFloat(tp.price) || 0;
+
+      const tpPortionValue = ov * (tpPctVal / 100);
+      const tpPct = (tpPriceVal - ep) / ep;
+      const tpGross = isLong ? tpPortionValue * tpPct : tpPortionValue * (-tpPct);
       
       const tpCloseFee = tpPortionValue * closeFeeRate;
       
       plannedGrossPnL += tpGross;
       totalCloseFeePlanned += tpCloseFee;
-      cumulativeTpPercent += tp.percent;
+      cumulativeTpPercent += tpPctVal;
     });
 
     const remainingPercent = Math.max(0, 100 - cumulativeTpPercent);
     if (remainingPercent > 0 && activeTps.length > 0) {
       const lastTp = activeTps[activeTps.length - 1];
-      const remainingValue = orderValue * (remainingPercent / 100);
-      const tpPct = (lastTp.price - entryPrice) / entryPrice;
-      const tpGross = isLong 
-        ? remainingValue * tpPct 
-        : remainingValue * (-tpPct);
+      const lastTpPrice = parseFloat(lastTp.price) || 0;
+      const remainingValue = ov * (remainingPercent / 100);
+      const tpPct = (lastTpPrice - ep) / ep;
+      const tpGross = isLong ? remainingValue * tpPct : remainingValue * (-tpPct);
       
       const tpCloseFee = remainingValue * closeFeeRate;
       plannedGrossPnL += tpGross;
@@ -832,8 +881,9 @@ export default function App() {
     }
 
     const netPlannedPnL = plannedGrossPnL - totalCloseFeePlanned - openFee;
-
     const absoluteLoss = Math.abs(netPnlSL);
+    
+    // Calculate expected R mathematically (can be negative if logical flaw in user inputs)
     const expectedR = absoluteLoss > 0 ? (netPlannedPnL / absoluteLoss) : 0;
 
     return {
@@ -872,7 +922,7 @@ export default function App() {
       const newTps = prev.tps.map(tp => {
         if (tp.id === id) {
           const nextActive = !tp.active;
-          return { ...tp, active: nextActive, percent: nextActive ? 25 : 0 };
+          return { ...tp, active: nextActive, percent: nextActive ? '25' : '' };
         }
         return tp;
       });
@@ -912,22 +962,22 @@ export default function App() {
 
     const newRecord = {
       id: 'trade-' + Date.now(),
-      date: planner.date || getLocalDateString(), // Fully customizable
-      time: planner.time || getLocalTimeString(), // Fully customizable
+      date: planner.date || getLocalDateString(), 
+      time: planner.time || getLocalTimeString(), 
       coin: formattedCoin,
       timeframe: planner.timeframe,
       direction: planner.direction,
       strategy: planner.strategy,
-      tpReached: '未平倉', // Default to open status
+      tpReached: '未平倉', 
       slHit: '否', 
       hedged: planner.hedged || '否', 
-      riskCoeff: planner.riskCoeff.toString(),
-      confidence: planner.confidence,
+      riskCoeff: planner.riskCoeff,
+      confidence: parseInt(planner.confidence) || 5,
       expectedR: plannerCalculations.expectedR,
-      actualR: 0, 
+      actualR: '', 
       plannedPnL: parseFloat(plannerCalculations.netPlannedPnL.toFixed(2)),
-      plannedLoss: parseFloat(plannerCalculations.netPnlSL.toFixed(2)), // Save for quick SL updates
-      actualPnL: 0, 
+      plannedLoss: parseFloat(plannerCalculations.netPnlSL.toFixed(2)), 
+      actualPnL: '', 
       winLoss: '➖ 平', 
       reason: planner.reason || `計畫開倉價: ${planner.entryPrice} | SL: ${planner.stopLossPrice}`,
       chartData: planner.screenshot || '',
@@ -955,36 +1005,37 @@ export default function App() {
       if (rec.id === id) {
         const updatedRec = { ...rec, [field]: value };
         
-        // Custom Logic 1: Auto-update Win/Loss and Status if user manually touches Actual PnL
+        // Auto-update Win/Loss if user manually types Actual PnL
         if (field === 'actualPnL') {
-          const val = parseFloat(value) || 0;
-          if (val > 0) {
-            updatedRec.winLoss = '✅ 勝';
-            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
-          } else if (val < 0) {
-            updatedRec.winLoss = '❌ 敗';
-            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '觸發止損';
-          } else {
-            updatedRec.winLoss = '➖ 平';
-            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
+          const val = parseFloat(value);
+          if (!isNaN(val)) {
+            if (val > 0) {
+              updatedRec.winLoss = '✅ 勝';
+              if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
+            } else if (val < 0) {
+              updatedRec.winLoss = '❌ 敗';
+              if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '觸發止損';
+            } else {
+              updatedRec.winLoss = '➖ 平';
+              if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
+            }
           }
         }
 
-        // Custom Logic 2: AUTO-FILL Data when User changes TP/SL Status !!!
+        // Auto-fill Actuals when Status changes
         if (field === 'tpReached') {
           if (value === '全部止盈') {
-            updatedRec.actualPnL = rec.plannedPnL || 0;
-            updatedRec.actualR = rec.expectedR || 0;
+            updatedRec.actualPnL = rec.plannedPnL || '';
+            updatedRec.actualR = rec.expectedR || '';
             updatedRec.winLoss = '✅ 勝';
           } else if (value === '觸發止損') {
-            // Retrieve exact planned loss, or fallback to math approximation
             const exactLoss = rec.plannedLoss !== undefined ? rec.plannedLoss : -(rec.plannedPnL / (rec.expectedR || 1)).toFixed(2);
             updatedRec.actualPnL = parseFloat(exactLoss);
             updatedRec.actualR = -1;
             updatedRec.winLoss = '❌ 敗';
           } else if (value === '保本平倉' || value === '未平倉') {
-            updatedRec.actualPnL = 0;
-            updatedRec.actualR = 0;
+            updatedRec.actualPnL = '';
+            updatedRec.actualR = '';
             updatedRec.winLoss = '➖ 平';
           }
         }
@@ -1146,7 +1197,7 @@ export default function App() {
   };
 
   // ============================================================================
-  // PERFORMANCE ANALYTICS ENGINE (EXCLUDES HEDGED TRADES FROM WINRATE)
+  // PERFORMANCE ANALYTICS ENGINE
   // ============================================================================
   const stats = useMemo(() => {
     const closedTrades = records.filter(rec => rec.winLoss !== '➖ 平');
@@ -1237,13 +1288,11 @@ export default function App() {
     };
   }, [records]);
 
-  // Equity Curve Timeline Data
   const chartPoints = useMemo(() => {
     const sorted = [...records].sort((a, b) => {
       return new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`);
     });
 
-    // 💡 Prevent string concatenation error on setting initial capital
     const baseCapital = parseFloat(activeMemberConfig?.defaultRiskCapital) || 10000;
     let currentBalance = baseCapital;
     let currentR = 0;
@@ -1263,7 +1312,6 @@ export default function App() {
     return points;
   });
 
-  // Optimized SVG Line Chart
   const chartVisualData = useMemo(() => {
     if (chartPoints.length <= 1) return null;
     const maxBalance = Math.max(...chartPoints.map(p => p.balance)) * 1.05;
@@ -1521,7 +1569,6 @@ export default function App() {
 
               {/* Calculator Parameters Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Custom Coin Input & Dropdown Integrator */}
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">交易標的 (幣種)</label>
                   <div className="relative">
@@ -1540,7 +1587,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Timeframe Input with Datalist */}
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">分析級別 (Timeframe)</label>
                   <div className="relative">
@@ -1567,9 +1613,9 @@ export default function App() {
                     <input 
                       type="number" 
                       value={planner.entryPrice}
-                      onChange={(e) => handlePlannerChange('entryPrice', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => handlePlannerChange('entryPrice', e.target.value)}
                       className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl pl-3.5 pr-12 py-2.5 text-xs font-bold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
-                      placeholder="0.00"
+                      placeholder="未設定"
                       disabled={isInspecting}
                     />
                     <span className="absolute right-3.5 top-2.5 text-[9px] font-bold text-[#64748b]">USDT</span>
@@ -1584,7 +1630,7 @@ export default function App() {
                     <input 
                       type="number" 
                       value={planner.stopLossPrice}
-                      onChange={(e) => handlePlannerChange('stopLossPrice', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => handlePlannerChange('stopLossPrice', e.target.value)}
                       className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl pl-3.5 pr-12 py-2.5 text-xs font-bold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
                       placeholder="SL 價格"
                       disabled={isInspecting}
@@ -1593,7 +1639,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* BingX Position/Order Value */}
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">
                     BingX 訂單價值 (Order Value)
@@ -1602,9 +1647,9 @@ export default function App() {
                     <input 
                       type="number" 
                       value={planner.orderValue}
-                      onChange={(e) => handlePlannerChange('orderValue', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => handlePlannerChange('orderValue', e.target.value)}
                       className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl pl-3.5 pr-12 py-2.5 text-xs font-bold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
-                      placeholder="槓桿 x 保證金的總價值"
+                      placeholder="槓桿 x 保證金"
                       disabled={isInspecting}
                     />
                     <span className="absolute right-3.5 top-2.5 text-[9px] font-bold text-[#64748b]">USDT</span>
@@ -1619,7 +1664,7 @@ export default function App() {
                       min="1" 
                       max="10" 
                       value={planner.confidence}
-                      onChange={(e) => handlePlannerChange('confidence', parseInt(e.target.value) || 5)}
+                      onChange={(e) => handlePlannerChange('confidence', e.target.value)}
                       className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-bold text-amber-400 focus:outline-none font-mono text-center"
                       disabled={isInspecting}
                     />
@@ -1630,14 +1675,13 @@ export default function App() {
                       type="number" 
                       step="0.1" 
                       value={planner.riskCoeff}
-                      onChange={(e) => handlePlannerChange('riskCoeff', parseFloat(e.target.value) || 1.0)}
+                      onChange={(e) => handlePlannerChange('riskCoeff', e.target.value)}
                       className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-bold text-emerald-400 focus:outline-none font-mono text-center"
                       disabled={isInspecting}
                     />
                   </div>
                 </div>
 
-                {/* 🏆 USER INPUT: TRADE OPEN DATE */}
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">
                     開倉日期 (Date)
@@ -1651,7 +1695,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* 🏆 USER INPUT: TRADE OPEN TIME */}
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">
                     開倉時間 (Time)
@@ -1696,8 +1739,8 @@ export default function App() {
                           <input 
                             type="number" 
                             value={planner.riskAmount} 
-                            onChange={(e) => handlePlannerChange('riskAmount', parseFloat(e.target.value) || 0)}
-                            className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-bold"
+                            onChange={(e) => handlePlannerChange('riskAmount', e.target.value)}
+                            className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-bold focus:outline-none focus:border-emerald-500"
                             disabled={isInspecting}
                           />
                           <span className="absolute right-2 top-1.5 text-[8px] font-bold text-[#64748b]">USDT</span>
@@ -1723,7 +1766,7 @@ export default function App() {
                         <button
                           onClick={() => {
                             if (sizingReport.recommendedSizing > 0) {
-                              handlePlannerChange('orderValue', sizingReport.recommendedSizing);
+                              handlePlannerChange('orderValue', sizingReport.recommendedSizing.toString());
                               showToast(`已成功導入建議訂單價值：$${sizingReport.recommendedSizing.toLocaleString()} USDT`, "success");
                             } else {
                               showToast("請先輸入有效的開倉點位、SL 與最大承受損失", "warning");
@@ -1737,7 +1780,6 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Step-by-Step Verifiable Math Breakdown Cards */}
                     <div className="bg-[#11141c]/60 rounded-lg p-3 border border-[#1b212f] space-y-2 text-[11px] font-mono">
                       <div className="text-slate-400 font-bold border-b border-[#1b212f] pb-1 flex justify-between">
                         <span>🧮 算倉推導公式一覽</span>
@@ -1765,11 +1807,6 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                {!planner.useSmartSizing && (
-                  <p className="text-[10px] text-slate-500">
-                    💡 智能算倉可在開單前將 **SL 百分比** 與 **雙邊吃單費率（0.1%）** 整合，精確計算出保證金與槓桿配比，把真實損失控制在您設定的 R 值。
-                  </p>
-                )}
               </div>
 
               {/* Multi-TP Configuration Section */}
@@ -1779,7 +1816,7 @@ export default function App() {
                     分批止盈減倉策略 (Multi-TP Exit)
                   </label>
                   <span className="text-[10px] font-semibold text-[#64748b]">
-                    已設定平倉比例: {planner.tps.reduce((acc, curr) => acc + (curr.active ? curr.percent : 0), 0)}%
+                    已設定平倉比例: {planner.tps.reduce((acc, curr) => acc + (curr.active ? (parseFloat(curr.percent) || 0) : 0), 0)}%
                   </span>
                 </div>
 
@@ -1812,10 +1849,10 @@ export default function App() {
                             <label className="block text-[8px] text-[#64748b] mb-1">平倉價格</label>
                             <input 
                               type="number" 
-                              value={tp.price || ''}
-                              onChange={(e) => handleTpChange(tp.id, 'price', parseFloat(e.target.value) || 0)}
-                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1 text-xs text-[#f8fafc] font-bold"
-                              placeholder="0.00"
+                              value={tp.price}
+                              onChange={(e) => handleTpChange(tp.id, 'price', e.target.value)}
+                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1 text-xs text-[#f8fafc] font-bold focus:outline-none focus:border-emerald-500"
+                              placeholder="未設定"
                               disabled={isInspecting}
                             />
                           </div>
@@ -1823,10 +1860,10 @@ export default function App() {
                             <label className="block text-[8px] text-[#64748b] mb-1">減倉比例</label>
                             <input 
                               type="number" 
-                              value={tp.percent || ''}
-                              onChange={(e) => handleTpChange(tp.id, 'percent', parseInt(e.target.value) || 0)}
-                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1 text-xs text-center text-[#f8fafc] font-bold"
-                              placeholder="25%"
+                              value={tp.percent}
+                              onChange={(e) => handleTpChange(tp.id, 'percent', e.target.value)}
+                              className="w-full bg-[#11141c] border border-[#1b212f] rounded-lg px-2.5 py-1 text-xs text-center text-[#f8fafc] font-bold focus:outline-none focus:border-emerald-500"
+                              placeholder="%"
                               disabled={isInspecting}
                             />
                           </div>
@@ -1889,7 +1926,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Upload Screenshot preview card inside Planner */}
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">實戰 K 線/關鍵支撐阻力圖檔</label>
                 <div className="flex gap-2">
@@ -1932,6 +1968,20 @@ export default function App() {
                 />
               </div>
 
+              {/* Logical Flaw Warning System UI */}
+              {plannerWarnings.length > 0 && (
+                <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 space-y-2 animate-fadeIn">
+                  {plannerWarnings.map((w, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-xs font-bold text-rose-400">
+                      <span>⚠️</span> <span>{w}</span>
+                    </div>
+                  ))}
+                  <div className="text-[10px] text-rose-400/80 pl-6">
+                    注意：違反邏輯的止盈止損設定，將導致算倉與日誌中出現**負數（虧損）**的計畫 R 值與 PnL！
+                  </div>
+                </div>
+              )}
+
               {/* Action buttons */}
               <div className="flex gap-4 pt-2">
                 <button 
@@ -1962,16 +2012,16 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-[#0a0c10] p-4 rounded-xl border border-[#1b212f]">
                     <span className="text-[9px] font-bold text-[#64748b] block uppercase">預計最優淨盈虧</span>
-                    <span className="text-lg font-black text-emerald-400 font-mono block mt-1">
-                      +${plannerCalculations.netPlannedPnL.toFixed(2)}
+                    <span className={`text-lg font-black font-mono block mt-1 ${plannerCalculations.netPlannedPnL < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {plannerCalculations.netPlannedPnL > 0 ? '+' : ''}${plannerCalculations.netPlannedPnL.toFixed(2)}
                     </span>
                     <span className="block text-[8px] text-[#64748b] mt-1">(已扣除 Maker 費)</span>
                   </div>
 
                   <div className="bg-[#0a0c10] p-4 rounded-xl border border-[#1b212f]">
                     <span className="text-[9px] font-bold text-[#64748b] block uppercase">計畫最大淨虧損</span>
-                    <span className="text-lg font-black text-rose-400 font-mono block mt-1">
-                      -${Math.abs(plannerCalculations.netPnlSL).toFixed(2)}
+                    <span className={`text-lg font-black font-mono block mt-1 ${plannerCalculations.netPnlSL > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {plannerCalculations.netPnlSL > 0 ? '+' : ''}${plannerCalculations.netPnlSL.toFixed(2)}
                     </span>
                     <span className="block text-[8px] text-[#64748b] mt-1">(觸發 SL + Taker 費)</span>
                   </div>
@@ -1984,7 +2034,7 @@ export default function App() {
                     <p className="text-[8px] text-[#64748b] mt-0.5">每單位風險 (1R) 對應之理論盈虧效益</p>
                   </div>
                   <div className="text-right">
-                    <span className={`text-3xl font-extrabold font-mono ${plannerCalculations.expectedR >= 2.5 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    <span className={`text-3xl font-extrabold font-mono ${plannerCalculations.expectedR >= 2.5 ? 'text-emerald-400' : plannerCalculations.expectedR < 0 ? 'text-rose-400' : 'text-amber-400'}`}>
                       {plannerCalculations.expectedR} R
                     </span>
                   </div>
@@ -2046,7 +2096,6 @@ export default function App() {
         {activeTab === 'journal' && (
           <div className="bg-[#11141c]/80 rounded-2xl border border-[#1b212f] p-6 shadow-xl space-y-6 animate-fadeIn backdrop-blur-sm">
             
-            {/* Journal Sub Header Controls */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1b212f] pb-4">
               <div className="flex items-center gap-2.5">
                 <span className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg text-sm">📓</span>
@@ -2086,7 +2135,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* High Fidelity Scrollable Table */}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1300px] text-left border-collapse">
                 <thead>
@@ -2137,7 +2185,6 @@ export default function App() {
                           {rec.strategy}
                         </td>
                         
-                        {/* 🌟 NEW SMART CLOSE STATUS SELECTOR */}
                         <td className="py-4 px-2 text-center">
                           <select 
                             value={
@@ -2185,7 +2232,7 @@ export default function App() {
                               list={`journal-mistakes-${rec.id}`}
                               value={rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅'}
                               onChange={(e) => updateRecordField(rec.id, 'mistakeTag', e.target.value)}
-                              className="text-[10px] bg-[#0a0c10] border border-[#1b212f] rounded p-1 text-[#94a3b8] focus:text-[#f8fafc] w-full max-w-[150px]"
+                              className="text-[10px] bg-[#0a0c10] border border-[#1b212f] rounded p-1 text-[#94a3b8] focus:text-[#f8fafc] w-full max-w-[150px] focus:border-emerald-500 focus:outline-none"
                               placeholder="自訂歸因"
                               disabled={isInspecting}
                             />
@@ -2198,7 +2245,7 @@ export default function App() {
                           {rec.confidence}/10
                         </td>
                         <td className="py-4 px-3 text-right font-mono">
-                          <div className="text-[#64748b] text-[10px]">預期: <span className="text-[#e2e8f0] font-bold">{rec.expectedR}R</span></div>
+                          <div className="text-[#64748b] text-[10px]">預期: <span className={`font-bold ${rec.expectedR < 0 ? 'text-rose-500' : 'text-[#e2e8f0]'}`}>{rec.expectedR}R</span></div>
                           
                           <div className="flex items-center justify-end gap-1 mt-1">
                             <span className="text-[9px] text-emerald-500 font-bold">實際 R:</span>
@@ -2206,21 +2253,21 @@ export default function App() {
                               type="number" 
                               step="0.05"
                               value={rec.actualR}
-                              onChange={(e) => updateRecordField(rec.id, 'actualR', parseFloat(e.target.value) || 0)}
+                              onChange={(e) => updateRecordField(rec.id, 'actualR', e.target.value)}
                               className="w-14 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
                               disabled={isInspecting}
                             />
                           </div>
                         </td>
                         <td className="py-4 px-3 text-right font-mono">
-                          <div className="text-[#64748b] text-[10px]">計畫: <span className="text-[#e2e8f0] font-bold">${rec.plannedPnL}</span></div>
+                          <div className="text-[#64748b] text-[10px]">計畫: <span className={`font-bold ${rec.plannedPnL < 0 ? 'text-rose-500' : 'text-[#e2e8f0]'}`}>${rec.plannedPnL}</span></div>
                           
                           <div className="flex items-center justify-end gap-1 mt-1">
                             <span className="text-[9px] text-emerald-500 font-bold">$ 實際:</span>
                             <input 
                               type="number" 
                               value={rec.actualPnL}
-                              onChange={(e) => updateRecordField(rec.id, 'actualPnL', parseFloat(e.target.value) || 0)}
+                              onChange={(e) => updateRecordField(rec.id, 'actualPnL', e.target.value)}
                               className="w-18 bg-[#0a0c10] border border-[#1b212f] rounded px-1.5 py-0.5 text-xs text-right font-bold text-emerald-400 font-mono focus:border-emerald-500 focus:outline-none"
                               disabled={isInspecting}
                             />
@@ -2576,7 +2623,7 @@ export default function App() {
                       <input 
                         type="number" 
                         value={memberConfig.defaultRiskCapital}
-                        onChange={(e) => setMemberConfig(prev => ({ ...prev, defaultRiskCapital: parseInt(e.target.value) || 10000 }))}
+                        onChange={(e) => setMemberConfig(prev => ({ ...prev, defaultRiskCapital: e.target.value }))}
                         className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs text-[#f8fafc] focus:outline-none focus:border-emerald-500 font-bold"
                         disabled={isInspecting}
                       />
@@ -2889,12 +2936,28 @@ export default function App() {
                     <h3 className="font-bold text-xs text-[#f8fafc] flex items-center gap-2 uppercase tracking-wider">
                       <span>👥</span> 實戰團隊學員權限與進階分配
                     </h3>
+                    {selectedUsers.length > 0 && (
+                      <button 
+                        onClick={() => setShowBatchDeleteModal(true)}
+                        className="bg-rose-600 hover:bg-rose-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all shadow-lg shadow-rose-900/20 animate-fadeIn flex items-center gap-1.5"
+                      >
+                        <span>🗑️</span> 批次刪除選定帳號 ({selectedUsers.length})
+                      </button>
+                    )}
                   </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs font-mono">
                       <thead>
                         <tr className="border-b border-[#1b212f] text-[#64748b] uppercase tracking-wider font-bold">
+                          <th className="py-2.5 px-3 w-10 text-center">
+                            <input 
+                              type="checkbox" 
+                              className="accent-violet-500 cursor-pointer w-3.5 h-3.5"
+                              checked={usersDirectory.length > 1 && selectedUsers.length === usersDirectory.length - 1}
+                              onChange={handleSelectAllUsers}
+                            />
+                          </th>
                           <th className="py-2.5 px-4">學員暱稱 (Nickname)</th>
                           <th className="py-2.5 px-3">信箱 (Email)</th>
                           <th className="py-2.5 px-3">權限配發 (RBAC)</th>
@@ -2909,6 +2972,18 @@ export default function App() {
                               viewingUid === member.uid ? 'bg-violet-950/10' : ''
                             }`}
                           >
+                            <td className="py-3 px-3 text-center">
+                              {member.uid !== user?.uid ? (
+                                <input 
+                                  type="checkbox" 
+                                  className="accent-violet-500 cursor-pointer w-3.5 h-3.5"
+                                  checked={selectedUsers.includes(member.uid)}
+                                  onChange={() => handleToggleSelectUser(member.uid)}
+                                />
+                              ) : (
+                                <span className="text-[10px] text-slate-600">--</span>
+                              )}
+                            </td>
                             {/* Nickname */}
                             <td className="py-3 px-4 font-bold text-emerald-400 flex items-center gap-1.5">
                               <span>{member.nickname}</span>
@@ -2988,7 +3063,7 @@ export default function App() {
                           type="number" 
                           step="0.001"
                           value={editingGlobal.makerFee}
-                          onChange={(e) => setEditingGlobal(prev => ({ ...prev, makerFee: parseFloat(e.target.value) || 0 }))}
+                          onChange={(e) => setEditingGlobal(prev => ({ ...prev, makerFee: e.target.value }))}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2 text-xs font-bold text-[#f8fafc] focus:outline-none"
                           disabled={isViewer}
                         />
@@ -3003,7 +3078,7 @@ export default function App() {
                           type="number" 
                           step="0.001"
                           value={editingGlobal.takerFee}
-                          onChange={(e) => setEditingGlobal(prev => ({ ...prev, takerFee: parseFloat(e.target.value) || 0 }))}
+                          onChange={(e) => setEditingGlobal(prev => ({ ...prev, takerFee: e.target.value }))}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2 text-xs font-bold text-[#f8fafc] focus:outline-none"
                           disabled={isViewer}
                         />
@@ -3307,6 +3382,36 @@ export default function App() {
                 className="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-2 rounded-xl text-xs font-bold transition-colors"
               >
                 確認抹除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOM DIALOG: BATCH DELETE USERS */}
+      {showBatchDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-[#11141d] w-full max-w-sm rounded-2xl border border-rose-500/20 p-6 space-y-4 shadow-2xl text-center">
+            <span className="text-3xl">🚨</span>
+            <h3 className="text-sm font-bold text-[#f8fafc]">確定要批次抹除這些帳號嗎？</h3>
+            <p className="text-xs text-[#94a3b8] leading-relaxed">
+              即將抹除 <span className="text-rose-400 font-bold">{selectedUsers.length}</span> 位學員的所有權限與個人數據。此操作不可逆轉！
+              <br/><span className="text-[10px] opacity-70">(註：因安全性限制，此操作會剝奪並清空其所有系統資料身分)</span>
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowBatchDeleteModal(false)}
+                className="flex-1 bg-[#0a0c10] hover:bg-[#11141c] border border-[#1b212f] text-[#94a3b8] py-2.5 rounded-xl text-xs font-bold transition-colors"
+                disabled={isSyncing}
+              >
+                取消
+              </button>
+              <button
+                onClick={executeBatchDeleteUsers}
+                className="flex-1 bg-rose-600 hover:bg-rose-500 text-white py-2.5 rounded-xl text-xs font-black transition-colors flex items-center justify-center gap-2"
+                disabled={isSyncing}
+              >
+                {isSyncing ? '執行中...' : '確認批次抹除'}
               </button>
             </div>
           </div>
