@@ -2295,12 +2295,12 @@ export default function App() {
                               <span className="text-xs text-[#64748b] block">常規勝率</span>
                               <span className="text-sm font-bold text-emerald-400">{winRate.toFixed(1)}%</span>
                             </div>
-                            <div className="text-right">
-                              <span className="text-xs text-[#64748b] block">累計收益</span>
-                              <span className={`text-sm font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                {data.pnl >= 0 ? '+' : ''}${data.pnl.toFixed(2)}
-                              </span>
-</div>
+                                                        <div className="text-right">
+                              <span className="text-xs text-[#64748b] block">累計收益</span>
+                              <span className={`text-sm font-bold ${data.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {data.pnl >= 0 ? '+' : ''}${data.pnl.toFixed(2)}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       );
