@@ -108,7 +108,7 @@ export default function App() {
     takerFee: 0.05, // BingX Taker fee %
     coins: ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX', 'LINK', 'BNB', 'ORDI', 'PEPE', 'SUI', 'TAO'],
     timeframes: ['3分鐘', '15分鐘', '1小時', '4小時', '1日'],
-    strategies: ['Fibo+關鍵水平位支撐', 'SMC 訂單塊回測+流動性清算', 'EMA 均線過度偏離修正', '突破盤整區追單', '套保對沖（Hedged）']
+    strategies: ['Fibo+關鍵水平位支撐', '3+1策略', '馬刺策略', '突破盤整區追單', '獵取流動性']
   });
 
   // Temp state to allow edits in admin tab before saving/publishing
@@ -1838,7 +1838,7 @@ export default function App() {
                     disabled={isInspecting}
                   >
                     <option value="否">否 (計入常規覆盤勝率)</option>
-                    <option value="是">是 (對沖套保不計勝率)</option>
+                    <option value="是">是 (套保不計勝率)</option>
                   </select>
                 </div>
 
@@ -2305,14 +2305,14 @@ export default function App() {
               <div className="flex items-center justify-between border-b border-[#1b212f] pb-4">
                 <div>
                   <h3 className="font-bold text-xs uppercase tracking-wider text-[#94a3b8]">
-                    {isInspecting ? `💎 學員 [${activeMemberConfig.nickname}] 的實時權益曲線` : '模擬帳戶資產淨值增長曲線'}
+                    {isInspecting ? `💎 學員 [${activeMemberConfig.nickname}] 的實時權益曲線` : '帳戶資產淨值增長曲線'}
                   </h3>
-                  <p className="text-[10px] text-[#64748b]">資深資訊工程師量化指標 · 資產本金對應 K 線時序走向圖</p>
+                  <p className="text-[10px] text-[#64748b]">資產本金對應 K 線時序走向圖</p>
                 </div>
                 <div className="text-right text-xs font-mono">
                   <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" />
                   <span className="text-[#94a3b8] font-bold">
-                    終端餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
+                    帳戶資金餘額: ${parseFloat(chartPoints[chartPoints.length - 1].balance).toFixed(2)} USDT
                   </span>
                 </div>
               </div>
@@ -3138,39 +3138,7 @@ export default function App() {
 
             {/* 🏆 ONE-CLICK DEMO LOGIN (資深工科交易員特設：沙盒無縫預覽) */}
             <div className="bg-[#1b2030]/30 border border-[#2d364f]/50 rounded-xl p-3.5 text-xs text-left space-y-2">
-              <span className="text-emerald-400 font-bold flex items-center gap-1">
-                <span>⚡</span> 擁有者一鍵無縫體驗入口 (Sandbox 演示通道)
-              </span>
-              <p className="text-[10px] text-slate-400 leading-relaxed">
-                如果您在當前沙盒中遇見 Google 彈窗阻擋，請直接點擊下方按鈕，系統將自動填寫最高權限信箱 <span className="text-[#f8fafc] font-bold font-mono">zeeu0710@gmail.com</span>：
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthEmail('zeeu0710@gmail.com');
-                    setAuthPassword('ZeeeU2026!');
-                    setAuthMode('login');
-                    showToast("已自動載入擁有者測試信箱與預配密碼！請點選「安全登入終端」即可進入", "info");
-                  }}
-                  className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all"
-                >
-                  填入擁有者信箱 👑
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthEmail('coach@quanttrader.pro');
-                    setAuthPassword('coach2026');
-                    setAuthMode('login');
-                    showToast("已自動載入副管理員(Admin)測試信箱！請點選「安全登入終端」", "info");
-                  }}
-                  className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 px-3 py-1.5 rounded-lg text-[10px] font-black tracking-wider transition-all"
-                >
-                  填入副管理(Admin) 🛠️
-                </button>
-              </div>
-            </div>
+ 
 
             <div className="flex items-center gap-3">
               <div className="h-[1px] bg-[#1b212f] flex-1" />
