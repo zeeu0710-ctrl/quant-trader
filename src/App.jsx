@@ -1032,27 +1032,22 @@ export default function App() {
       if (rec.id === id) {
         const updatedRec = { ...rec, [field]: value };
         
-        // Auto Mutual Calculation: Actual PnL <-> Actual R
+        // 1. Get 1R securely (Recovers Math logic even if CSV was imported without plannedLoss)
+        let oneR = 100; // safe fallback
+        if (rec.plannedLoss && !isNaN(parseFloat(rec.plannedLoss)) && parseFloat(rec.plannedLoss) !== 0) {
+          oneR = Math.abs(parseFloat(rec.plannedLoss));
+        } else if (rec.plannedPnL && rec.expectedR && parseFloat(rec.expectedR) !== 0) {
+          oneR = Math.abs(parseFloat(rec.plannedPnL) / parseFloat(rec.expectedR));
+        }
+
+        // 2. Auto Mutual Calculation: Actual PnL <-> Actual R
         if (field === 'actualPnL') {
           const val = parseFloat(value);
           if (!isNaN(val)) {
-            // Adjust winLoss tag
-            if (val > 0) {
-              updatedRec.winLoss = '✅ 勝';
-              if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
-            } else if (val < 0) {
-              updatedRec.winLoss = '❌ 敗';
-              if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '觸發止損';
-            } else {
-              updatedRec.winLoss = '➖ 平';
-              if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
-            }
-
-            // Calc Actual R
-            if (rec.plannedLoss) {
-              const oneR = Math.abs(rec.plannedLoss);
-              if (oneR > 0) updatedRec.actualR = (val / oneR).toFixed(2);
-            }
+            updatedRec.winLoss = val > 0 ? '✅ 勝' : val < 0 ? '❌ 敗' : '➖ 平';
+            if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = val > 0 ? '手動/部分' : val < 0 ? '觸發止損' : '保本平倉';
+            
+            updatedRec.actualR = (val / oneR).toFixed(2);
           } else {
             updatedRec.actualR = '';
           }
@@ -1060,32 +1055,16 @@ export default function App() {
         else if (field === 'actualR') {
           const val = parseFloat(value);
           if (!isNaN(val)) {
-             // Calc Actual PnL
-             if (rec.plannedLoss) {
-               const oneR = Math.abs(rec.plannedLoss);
-               if (oneR > 0) {
-                 const pnl = val * oneR;
-                 updatedRec.actualPnL = pnl.toFixed(2);
-
-                 // Adjust winLoss tag
-                 if (val > 0) {
-                   updatedRec.winLoss = '✅ 勝';
-                   if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '手動/部分';
-                 } else if (val < 0) {
-                   updatedRec.winLoss = '❌ 敗';
-                   if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '觸發止損';
-                 } else {
-                   updatedRec.winLoss = '➖ 平';
-                   if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = '保本平倉';
-                 }
-               }
-             }
+             updatedRec.winLoss = val > 0 ? '✅ 勝' : val < 0 ? '❌ 敗' : '➖ 平';
+             if (['未平倉', '否'].includes(updatedRec.tpReached)) updatedRec.tpReached = val > 0 ? '手動/部分' : val < 0 ? '觸發止損' : '保本平倉';
+             
+             updatedRec.actualPnL = (val * oneR).toFixed(2);
           } else {
             updatedRec.actualPnL = '';
           }
         }
 
-        // Auto-fill Actuals & Remaining Position when Status changes
+        // 3. Status changes auto-fill Actuals
         if (field === 'tpReached') {
           if (value === '全部止盈') {
             updatedRec.actualPnL = rec.plannedPnL || '';
@@ -1093,14 +1072,14 @@ export default function App() {
             updatedRec.winLoss = '✅ 勝';
             updatedRec.remainingPosition = '0';
           } else if (value === '觸發止損') {
-            const exactLoss = rec.plannedLoss !== undefined ? rec.plannedLoss : -(rec.plannedPnL / (rec.expectedR || 1)).toFixed(2);
+            const exactLoss = rec.plannedLoss !== undefined ? rec.plannedLoss : -(parseFloat(rec.plannedPnL) / (parseFloat(rec.expectedR) || 1)).toFixed(2);
             updatedRec.actualPnL = parseFloat(exactLoss);
             updatedRec.actualR = -1;
             updatedRec.winLoss = '❌ 敗';
             updatedRec.remainingPosition = '0';
           } else if (value === '保本平倉') {
-            updatedRec.actualPnL = '';
-            updatedRec.actualR = '';
+            updatedRec.actualPnL = '0';
+            updatedRec.actualR = '0';
             updatedRec.winLoss = '➖ 平';
             updatedRec.remainingPosition = '0';
           } else if (value === '未平倉') {
