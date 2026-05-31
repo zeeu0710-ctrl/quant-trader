@@ -108,7 +108,7 @@ export default function App() {
     takerFee: 0.05, // BingX Taker fee %
     coins: ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'AVAX', 'LINK', 'BNB', 'ORDI', 'PEPE', 'SUI', 'TAO'],
     timeframes: ['3分鐘', '15分鐘', '1小時', '4小時', '1日'],
-    strategies: ['Fibo+關鍵水平位支撐', 'SMC 訂單塊回測+流動性清算', 'EMA 均線過度偏離修正', '突破盤整區追單', '套保對沖（Hedged）']
+    strategies: ['Fibo+關鍵水平位支撐', '3+1策略', '馬刺策略', '突破盤整區追單', '流動性獵取']
   });
 
   // Temp state to allow edits in admin tab before saving/publishing
@@ -1239,7 +1239,7 @@ export default function App() {
     });
 
     return points;
-  }, [records, activeMemberConfig]);
+  });
 
   // Optimized SVG Line Chart
   const chartVisualData = useMemo(() => {
@@ -1819,14 +1819,20 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">開單策略</label>
-                  <select 
-                    value={planner.strategy}
-                    onChange={(e) => handlePlannerChange('strategy', e.target.value)}
-                    className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
-                    disabled={isInspecting}
-                  >
-                    {globalSettings.strategies.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      list="strategies-datalist"
+                      value={planner.strategy}
+                      onChange={(e) => handlePlannerChange('strategy', e.target.value)}
+                      className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
+                      placeholder="選擇或手動輸入策略"
+                      disabled={isInspecting}
+                    />
+                    <datalist id="strategies-datalist">
+                      {globalSettings.strategies.map(s => <option key={s} value={s}>{s}</option>)}
+                    </datalist>
+                  </div>
                 </div>
 
                 <div>
@@ -1838,20 +1844,26 @@ export default function App() {
                     disabled={isInspecting}
                   >
                     <option value="否">否 (計入常規覆盤勝率)</option>
-                    <option value="是">是 (對沖套保不計勝率)</option>
+                    <option value="是">是 (套保不計勝率)</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[#94a3b8] mb-1.5">心態與偏差歸因</label>
-                  <select 
-                    value={planner.mistakeTag}
-                    onChange={(e) => handlePlannerChange('mistakeTag', e.target.value)}
-                    className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
-                    disabled={isInspecting}
-                  >
-                    {mistakeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      list="mistakes-datalist"
+                      value={planner.mistakeTag}
+                      onChange={(e) => handlePlannerChange('mistakeTag', e.target.value)}
+                      className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none focus:border-emerald-500"
+                      placeholder="選擇或手動輸入歸因"
+                      disabled={isInspecting}
+                    />
+                    <datalist id="mistakes-datalist">
+                      {mistakeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </datalist>
+                  </div>
                 </div>
               </div>
 
@@ -2132,14 +2144,20 @@ export default function App() {
                           </select>
                         </td>
                         <td className="py-4 px-2">
-                          <select
-                            value={rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅'}
-                            onChange={(e) => updateRecordField(rec.id, 'mistakeTag', e.target.value)}
-                            className="text-[10px] bg-[#0a0c10] border border-[#1b212f] rounded p-1 text-[#94a3b8] focus:text-[#f8fafc] max-w-[150px]"
-                            disabled={isInspecting}
-                          >
-                            {mistakeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                          </select>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              list={`journal-mistakes-${rec.id}`}
+                              value={rec.mistakeTag || '無犯錯 (嚴格執行計畫) ✅'}
+                              onChange={(e) => updateRecordField(rec.id, 'mistakeTag', e.target.value)}
+                              className="text-[10px] bg-[#0a0c10] border border-[#1b212f] rounded p-1 text-[#94a3b8] focus:text-[#f8fafc] w-full max-w-[150px]"
+                              placeholder="自訂歸因"
+                              disabled={isInspecting}
+                            />
+                            <datalist id={`journal-mistakes-${rec.id}`}>
+                              {mistakeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </datalist>
+                          </div>
                         </td>
                         <td className="py-4 px-2 text-center font-mono font-bold text-amber-400">
                           {rec.confidence}/10
