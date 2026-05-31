@@ -22,23 +22,24 @@ import {
 } from 'firebase/firestore';
 
 // ============================================================================
-// FIREBASE CONFIG & INITIALIZATION
+// FIREBASE CONFIG & INITIALIZATION (SECURE & CUSTOMIZED TO YOUR PROJECT)
 // ============================================================================
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
   : {
-      apiKey: "",
-      authDomain: "default-app-id.firebaseapp.com",
-      projectId: "default-app-id",
-      storageBucket: "default-app-id.appspot.com",
-      messagingSenderId: "123456789",
-      appId: "1:123456789:web:abcdef"
+      apiKey: "AIzaSyBldG08UeCwPCiOcHq6ylnDAxlpp-CTDEU",
+      authDomain: "quanttrader-pro-d4888.firebaseapp.com",
+      projectId: "quanttrader-pro-d4888",
+      storageBucket: "quanttrader-pro-d4888.firebasestorage.app",
+      messagingSenderId: "300426681383",
+      appId: "1:300426681383:web:2215904de28dcb458f8202",
+      measurementId: "G-Z5Q39JL7V4"
     };
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'quanttrader-pro';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'quanttrader-pro-d4888';
 const googleProvider = new GoogleAuthProvider();
 
 export default function App() {
@@ -1245,7 +1246,9 @@ export default function App() {
             📔 交易紀錄
           </button>
           <button 
-            onClick={() => setActiveTab('performance')}
+            onClick={() => {
+              setActiveTab('performance');
+            }}
             className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'performance' 
                 ? 'bg-[#1b212f] text-emerald-400 shadow-sm' 
@@ -1927,7 +1930,7 @@ export default function App() {
                   {records.length === 0 ? (
                     <tr>
                       <td colSpan="14" className="py-12 text-center text-[#64748b] font-medium">
-                        目前沒有覆盤紀錄。請先使用規劃器建立新計畫或匯入歷史 CSV 檔案。
+                        目並非覆盤紀錄。請先使用規劃器建立新計畫或匯入歷史 CSV 檔案。
                       </td>
                     </tr>
                   ) : (
@@ -1955,7 +1958,7 @@ export default function App() {
                         <td className="py-4 px-2">
                           <div className="flex flex-col items-center gap-1">
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                              rec.tpReached === '是' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-900 text-slate-500'
+                              rec.tpReached === '開' || rec.tpReached === '是' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-900 text-slate-500'
                             }`}>
                               TP: {rec.tpReached}
                             </span>
@@ -2306,7 +2309,7 @@ export default function App() {
                   <span>🧠</span> 交易心理學偏差歸因儀
                 </h3>
                 <p className="text-[9px] text-[#64748b] leading-relaxed">
-                  大腦漏洞統計：分析何種心理偏誤（Friction Leaks）正在暗中蠶食您的本本金：
+                  大腦漏洞統計：分析何種心理偏誤（Friction Leaks）正在暗中蠶食您的本金：
                 </p>
                 <div className="space-y-3">
                   {Object.entries(stats.mistakeStats).map(([tag, data]) => {
@@ -2666,7 +2669,7 @@ export default function App() {
                           className="w-full bg-[#0a0c10] border border-[#1b212f] rounded-xl px-3.5 py-2 text-xs font-bold text-[#f8fafc] focus:outline-none"
                           disabled={isViewer}
                         />
-                        <span className="absolute right-3.5 top-2 text-xs font-bold text-[#64748b]">%</span>
+                        <span className="absolute right-3.5 top-2 text-xs font-bold text-[#64748b]%}%"></span>
                       </div>
                     </div>
 
