@@ -2596,8 +2596,8 @@ export default function App() {
                   <span>👑</span> QuantTrader 團隊教練與權限管理中控台
                 </h2>
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  您目前的帳戶信箱具備安全解鎖的 <span className="text-violet-400 font-bold uppercase">{currentUserRole}</span> 權限（無需依靠金鑰，純由管理者登入認證直達）。
-                  在此您可以穿透監看特定學員覆盤日誌、分發全域策略。
+                  您目前的帳戶信箱具備安全解鎖的 <span className="text-violet-400 font-bold uppercase">{currentUserRole}</span> 權限。
+                  在此您可以查看學員覆盤日誌、修改用續費率。
                 </p>
               </div>
               <div className="bg-violet-950/30 border border-violet-500/20 rounded-xl px-4 py-2 text-xs font-mono">
@@ -2617,17 +2617,17 @@ export default function App() {
                   <div className="bg-gradient-to-br from-[#1c1530]/90 to-[#12101e]/95 rounded-2xl border border-violet-500/20 p-6 shadow-xl space-y-4">
                     <div className="border-b border-violet-500/10 pb-3 flex items-center justify-between">
                       <h3 className="font-bold text-xs text-violet-300 flex items-center gap-2 uppercase tracking-wider">
-                        <span>🛡️</span> 創立團隊核心幹部與工作人員帳戶 (擁有者特權)
+                        <span>🛡️</span> 創立管理員帳戶
                       </h3>
                       <span className="text-[9px] bg-violet-500/15 text-violet-400 px-2 py-0.5 rounded font-mono font-bold">BYPASS LOGOUT</span>
                     </div>
 
                     <form onSubmit={handleCreateStaffAccount} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">工作幹部暱稱</label>
+                        <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">管理員暱稱</label>
                         <input 
                           type="text" 
-                          placeholder="例如: 台北戰隊教練"
+                          placeholder="幣聖課"
                           value={staffNickname}
                           onChange={(e) => setStaffNickname(e.target.value)}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none transition-all"
@@ -2642,9 +2642,9 @@ export default function App() {
                           onChange={(e) => setStaffRole(e.target.value)}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-violet-400 focus:outline-none transition-all font-mono"
                         >
-                          <option value="admin">副管理人員 (Admin)</option>
-                          <option value="viewer">唯讀檢視教練 (Viewer)</option>
-                          <option value="member">常規PRO學員 (Member)</option>
+                          <option value="admin">Admin</option>
+                          <option value="viewer">Viewer</option>
+                          <option value="member">Member</option>
                         </select>
                       </div>
 
@@ -2652,7 +2652,7 @@ export default function App() {
                         <label className="block text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">設定登入電子信箱 (Email)</label>
                         <input 
                           type="email" 
-                          placeholder="例如: coach@quanttrader.pro"
+                          placeholder="例如: coach@gmail.com"
                           value={staffEmail}
                           onChange={(e) => setStaffEmail(e.target.value)}
                           className="w-full bg-[#0a0c10] border border-[#1b212f] focus:border-violet-500 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-[#f8fafc] focus:outline-none font-mono transition-all"
