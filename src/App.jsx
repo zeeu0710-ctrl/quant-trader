@@ -24,16 +24,15 @@ import { 
 // ============================================================================
 // FIREBASE CONFIG & INITIALIZATION (SECURE & SANDBOXED)
 // ============================================================================
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-  ? JSON.parse(__firebase_config) 
-  : {
-      apiKey: "",
-      authDomain: "default-app-id.firebaseapp.com",
-      projectId: "default-app-id",
-      storageBucket: "default-app-id.appspot.com",
-      messagingSenderId: "123456789",
-      appId: "1:123456789:web:abcdef"
-    };
+const firebaseConfig = {
+  apiKey: "AIzaSyBldG08UeCwPCiOcHq6ylnDAxlpp-CTDEU",
+  authDomain: "quanttrader-pro-d4888.firebaseapp.com",
+  projectId: "quanttrader-pro-d4888",
+  storageBucket: "quanttrader-pro-d4888.firebasestorage.app",
+  messagingSenderId: "300426681383",
+  appId: "1:300426681383:web:2215904de28dcb458f8202",
+  measurementId: "G-Z5Q39JL7V4"
+};
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
